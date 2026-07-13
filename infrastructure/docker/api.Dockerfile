@@ -1,6 +1,6 @@
 # Stage 1: Build
-FROM node:20-alpine AS builder
-RUN apk add --no-cache libc6-compat
+FROM node:20-slim AS builder
+RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 RUN npm install -g pnpm@9.5.0
 
 WORKDIR /app
@@ -17,9 +17,8 @@ RUN pnpm --filter @newsflow/database build
 RUN pnpm --filter api build
 
 # Stage 2: Production runner
-FROM node:20-alpine AS runner
-RUN apk add --no-cache libc6-compat
-RUN apk add --no-cache --repository=http://dl-cdn.alpinelinux.org/alpine/v3.18/main/ openssl1.1-compat
+FROM node:20-slim AS runner
+RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 RUN npm install -g pnpm@9.5.0
 
 WORKDIR /app
