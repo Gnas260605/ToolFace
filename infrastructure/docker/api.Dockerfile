@@ -19,6 +19,7 @@ RUN pnpm --filter api build
 # Stage 2: Production runner
 FROM node:20-alpine AS runner
 RUN apk add --no-cache libc6-compat
+RUN apk add --no-cache --repository=http://dl-cdn.alpinelinux.org/alpine/v3.18/main/ openssl1.1-compat
 RUN npm install -g pnpm@9.5.0
 
 WORKDIR /app
