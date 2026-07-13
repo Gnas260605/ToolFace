@@ -30,8 +30,8 @@ COPY packages/ ./packages/
 COPY apps/api/package.json ./apps/api/package.json
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 RUN pnpm install --prod --frozen-lockfile
-COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/client
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/packages/database/node_modules/@prisma/client ./node_modules/@prisma/client
+COPY --from=builder /app/packages/database/node_modules/.prisma ./node_modules/.prisma
 RUN chown -R node:node /app
 
 USER node
