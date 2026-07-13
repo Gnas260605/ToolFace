@@ -31,6 +31,9 @@ COPY apps/api/package.json ./apps/api/package.json
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 RUN pnpm install --prod --frozen-lockfile
 RUN pnpm --filter @newsflow/database db:generate
+COPY --from=builder /app/packages/config/dist ./packages/config/dist
+COPY --from=builder /app/packages/contracts/dist ./packages/contracts/dist
+COPY --from=builder /app/packages/database/dist ./packages/database/dist
 RUN chown -R node:node /app
 
 USER node
