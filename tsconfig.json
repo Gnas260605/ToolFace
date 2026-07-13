@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@newsflow/tsconfig/*": ["packages/tsconfig/*"],
+      "@newsflow/eslint-config": ["packages/eslint-config/index.js"],
+      "@newsflow/config": ["packages/config/dist/index.js"],
+      "@newsflow/contracts": ["packages/contracts/dist/index.js"],
+      "@newsflow/database": ["packages/database/dist/index.js"]
+    }
+  },
+  "exclude": ["node_modules", "dist"]
+}

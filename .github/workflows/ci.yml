@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: newsflow_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.5.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Lint check
+        run: pnpm lint
+
+      - name: Type check
+        run: pnpm typecheck
+
+      - name: Prisma Schema Validation
+        run: pnpm --filter @newsflow/database exec prisma validate
+
+      - name: Run migrations
+        run: pnpm --filter @newsflow/database exec prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/newsflow_test
+
+      - name: Run tests
+        run: pnpm test
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/newsflow_test
+          REDIS_URL: redis://localhost:6379
+          NODE_ENV: test
+          API_PORT: 3001
+          WEB_URL: http://localhost:3000
+          API_URL: http://localhost:3001
+          S3_ENDPOINT: http://localhost:9000
+          S3_BUCKET: test-bucket
+          S3_ACCESS_KEY: test
+          S3_SECRET_KEY: test
+
+      - name: Build applications
+        run: pnpm build
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/newsflow_test
+          REDIS_URL: redis://localhost:6379
+          NODE_ENV: production
+          API_PORT: 3001
+          WEB_URL: http://localhost:3000
+          API_URL: http://localhost:3001
+          S3_ENDPOINT: http://localhost:9000
+          S3_BUCKET: test-bucket
+          S3_ACCESS_KEY: test
+          S3_SECRET_KEY: test

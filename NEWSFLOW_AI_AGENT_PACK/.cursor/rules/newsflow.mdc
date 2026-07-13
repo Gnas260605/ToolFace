@@ -1,0 +1,22 @@
+---
+description: Production rules for NewsFlow AI
+alwaysApply: true
+---
+
+Read `SYSTEM_PROMPT.md` and `NEWSFLOW_AI_PRODUCTION_SPEC.md` before architectural or implementation work.
+
+Mandatory:
+- Production code only; no fake UI as completion.
+- TypeScript strict mode.
+- Backend authorization and workspace isolation.
+- Long-running work belongs in workers.
+- External integrations use adapters.
+- Publishing is human-approved by default and idempotent.
+- Facebook tokens are encrypted, never exposed to the browser, and never logged.
+- Approved RSS/APIs first; no paywall or anti-bot bypass.
+- AI output is untrusted and must pass deterministic verification.
+- Preserve factual names, dates, scores, numbers, quotations, and uncertainty.
+- Add tests with every critical feature.
+- Run lint, typecheck, tests, and build before claiming completion.
+- Work only on the requested phase.
+- Report exact observed command results.

@@ -1,0 +1,40 @@
+{
+  "name": "worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "nest build",
+    "dev": "nest start --watch",
+    "start:prod": "node dist/main",
+    "lint": "eslint \"src/**/*.ts\"",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.5.0",
+    "@nestjs/bullmq": "^10.1.1",
+    "@nestjs/common": "^10.3.9",
+    "@nestjs/config": "^3.2.0",
+    "@nestjs/core": "^10.3.9",
+    "@newsflow/config": "workspace:*",
+    "@newsflow/database": "workspace:*",
+    "bullmq": "^5.8.5",
+    "ioredis": "^5.4.1",
+    "jsdom": "^24.1.0",
+    "redlock": "5.0.0-beta.2",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "sanitize-html": "^2.13.0"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^10.3.2",
+    "@nestjs/testing": "^10.3.9",
+    "@newsflow/eslint-config": "workspace:*",
+    "@newsflow/tsconfig": "workspace:*",
+    "@types/jsdom": "^21.1.7",
+    "@types/node": "^20.14.9",
+    "@types/sanitize-html": "^2.11.0",
+    "ts-loader": "^9.6.2",
+    "typescript": "^5.5.3"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "name": "newsflow-ai",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.5.0",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml,css}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml,css}\""
+  },
+  "devDependencies": {
+    "@types/archiver": "^8.0.0",
+    "@types/ssh2": "^1.15.5",
+    "@typescript-eslint/eslint-plugin": "^7.16.0",
+    "@typescript-eslint/parser": "^7.16.0",
+    "archiver": "^8.0.0",
+    "eslint": "8.57.0",
+    "prettier": "3.3.2",
+    "ssh2": "^1.17.0",
+    "turbo": "2.0.6",
+    "typescript": "5.5.3",
+    "vitest": "1.6.0"
+  }
+}

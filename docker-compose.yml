@@ -1,0 +1,80 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: newsflow-postgres
+    environment:
+      POSTGRES_DB: newsflow
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - '5432:5432'
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d newsflow']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: newsflow-redis
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio
+    container_name: newsflow-minio
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  minio-setup:
+    image: minio/mc
+    container_name: newsflow-minio-setup
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set localminio http://minio:9000 minioadmin minioadmin;
+      mc mb --ignore-existing localminio/newsflow-bucket;
+      exit 0;
+      "
+
+  mailpit:
+    image: axllent/mailpit:v1.18.3
+    container_name: newsflow-mailpit
+    ports:
+      - '1025:1025'
+      - '8025:8025'
+    restart: unless-stopped
+
+volumes:
+  pg_data:
+    name: newsflow_pg_data
+  redis_data:
+    name: newsflow_redis_data
+  minio_data:
+    name: newsflow_minio_data

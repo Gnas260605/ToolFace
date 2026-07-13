@@ -1,0 +1,1133 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model SystemStatus {
+  id          String   @id @default(uuid())
+  name        String
+  version     String
+  environment String
+  checkedAt   DateTime @default(now())
+
+  @@map("system_statuses")
+}
+
+enum SourceType {
+  OFFICIAL_RSS
+  OFFICIAL_API
+  APPROVED_WEB_PAGE
+  MANUAL_URL
+}
+
+enum SourceStatus {
+  ACTIVE
+  DISABLED
+  AUTO_DISABLED
+  DELETED
+}
+
+enum SourceHealthStatus {
+  UNKNOWN
+  HEALTHY
+  DEGRADED
+  FAILING
+  DISABLED
+}
+
+enum SourceTrustLevel {
+  OFFICIAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+model Source {
+  id                  String             @id @default(uuid())
+  workspaceId         String             @map("workspace_id")
+  name                String
+  domain              String
+  feedUrl             String             @map("feed_url")
+  sourceType          SourceType         @default(OFFICIAL_RSS) @map("source_type")
+  language            String             @default("vi")
+  country             String             @default("VN")
+  category            String             @default("general")
+  trustLevel          SourceTrustLevel   @default(MEDIUM) @map("trust_level")
+  pollIntervalSeconds Int                @default(900) @map("poll_interval_seconds")
+  allowPageExtraction Boolean            @default(false) @map("allow_page_extraction")
+  attributionName     String             @map("attribution_name")
+  licenseNotes        String?            @map("license_notes")
+  status              SourceStatus       @default(ACTIVE)
+  healthStatus        SourceHealthStatus @default(UNKNOWN) @map("health_status")
+  lastPolledAt        DateTime?          @map("last_polled_at")
+  lastSuccessAt       DateTime?          @map("last_success_at")
+  nextPollAt          DateTime           @map("next_poll_at")
+  etag                String?
+  lastModified        String?            @map("last_modified")
+  consecutiveFailures Int                @default(0) @map("consecutive_failures")
+  lastErrorCode       String?            @map("last_error_code")
+  lastErrorMessage    String?            @map("last_error_message")
+  createdByUserId     String             @map("created_by_user_id")
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+  deletedAt           DateTime?          @map("deleted_at")
+
+  articles Article[]
+  pollRuns SourcePollRun[]
+
+  @@unique([workspaceId, feedUrl])
+  @@index([workspaceId, status])
+  @@index([workspaceId, nextPollAt])
+  @@index([workspaceId, healthStatus])
+  @@map("news_sources")
+}
+
+enum ArticleExtractionStatus {
+  NOT_REQUESTED
+  PENDING
+  SUCCESS
+  FAILED
+  BLOCKED
+}
+
+enum ArticleRiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model Article {
+  id                  String                  @id @default(uuid())
+  workspaceId         String                  @map("workspace_id")
+  sourceId            String                  @map("source_id")
+  canonicalUrl        String                  @map("canonical_url")
+  originalUrl         String                  @map("original_url")
+  title               String
+  summary             String?
+  author              String?
+  publishedAt         DateTime?               @map("published_at")
+  discoveredAt        DateTime                @default(now()) @map("discovered_at")
+  language            String                  @default("vi")
+  category            String                  @default("general")
+  imageUrl            String?                 @map("image_url")
+  contentExcerpt      String?                 @map("content_excerpt")
+  contentHash         String                  @map("content_hash")
+  normalizedTitle     String                  @map("normalized_title")
+  normalizedTitleHash String                  @map("normalized_title_hash")
+  extractionStatus    ArticleExtractionStatus @default(NOT_REQUESTED) @map("extraction_status")
+  riskLevel           ArticleRiskLevel        @default(LOW) @map("risk_level")
+  metadataJson        Json?                   @map("metadata_json")
+  createdAt           DateTime                @default(now()) @map("created_at")
+  updatedAt           DateTime                @updatedAt @map("updated_at")
+  archivedAt          DateTime?               @map("archived_at")
+
+  source          Source                @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  clusterArticles StoryClusterArticle[]
+
+  @@unique([workspaceId, canonicalUrl])
+  @@index([workspaceId, publishedAt])
+  @@index([workspaceId, sourceId, publishedAt])
+  @@index([workspaceId, category, publishedAt])
+  @@index([workspaceId, normalizedTitleHash])
+  @@index([workspaceId, contentHash])
+  @@map("articles")
+}
+
+enum ClusterStatus {
+  ACTIVE
+  CLOSED
+  ARCHIVED
+}
+
+model StoryCluster {
+  id             String        @id @default(uuid())
+  workspaceId    String        @map("workspace_id")
+  canonicalTopic String        @map("canonical_topic")
+  category       String        @default("general")
+  startedAt      DateTime      @default(now()) @map("started_at")
+  lastArticleAt  DateTime      @default(now()) @map("last_article_at")
+  status         ClusterStatus @default(ACTIVE)
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  clusterArticles StoryClusterArticle[]
+
+  @@map("story_clusters")
+}
+
+model StoryClusterArticle {
+  clusterId       String   @map("cluster_id")
+  articleId       String   @map("article_id")
+  similarityScore Float    @map("similarity_score")
+  isPrimarySource Boolean  @default(false) @map("is_primary_source")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  cluster StoryCluster @relation(fields: [clusterId], references: [id], onDelete: Cascade)
+  article Article      @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@id([clusterId, articleId])
+  @@map("story_cluster_articles")
+}
+
+enum PollRunStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+model SourcePollRun {
+  id                    String        @id @default(uuid())
+  workspaceId           String        @map("workspace_id")
+  sourceId              String        @map("source_id")
+  status                PollRunStatus @default(PENDING)
+  startedAt             DateTime      @default(now()) @map("started_at")
+  finishedAt            DateTime?     @map("finished_at")
+  httpStatus            Int?          @map("http_status")
+  entriesReceived       Int           @default(0) @map("entries_received")
+  articlesCreated       Int           @default(0) @map("articles_created")
+  articlesUpdated       Int           @default(0) @map("articles_updated")
+  duplicatesSkipped     Int           @default(0) @map("duplicates_skipped")
+  errorCode             String?       @map("error_code")
+  sanitizedErrorMessage String?       @map("sanitized_error_message")
+  correlationId         String        @map("correlation_id")
+  createdAt             DateTime      @default(now()) @map("created_at")
+
+  source Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@map("source_poll_runs")
+}
+
+model AuditLog {
+  id            String   @id @default(uuid())
+  workspaceId   String   @map("workspace_id")
+  actorId       String   @map("actor_id")
+  actorType     String   @default("USER") @map("actor_type")
+  action        String
+  resource      String
+  resourceId    String?  @map("resource_id")
+  beforeValues  Json?    @map("before_values")
+  afterValues   Json?    @map("after_values")
+  correlationId String?  @map("correlation_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@map("audit_logs")
+}
+
+enum FactSheetStatus {
+  PENDING
+  PROCESSING
+  SUCCESS
+  FAILED
+  STALE
+}
+
+enum EmojiPolicy {
+  NONE
+  LOW
+  MODERATE
+}
+
+enum DraftStatus {
+  DRAFT
+  GENERATING
+  GENERATION_FAILED
+  READY_FOR_REVIEW
+  CHANGES_REQUESTED
+  APPROVED
+  ARCHIVED
+}
+
+enum DraftContentType {
+  BREAKING
+  SUMMARY
+  ANALYSIS
+  RESULT
+  RUMOR
+  TRANSFER
+  MATCH_PREVIEW
+  MATCH_RECAP
+}
+
+enum DraftCreatedByType {
+  AI
+  USER
+  SYSTEM
+}
+
+enum ReviewDecision {
+  APPROVED
+  CHANGES_REQUESTED
+  REJECTED
+  APPROVAL_REVOKED
+}
+
+enum PromptTaskType {
+  FACT_EXTRACTION
+  DRAFT_GENERATION
+  DRAFT_VERIFICATION
+}
+
+model BrandProfile {
+  id                   String      @id @default(uuid())
+  workspaceId          String      @map("workspace_id")
+  name                 String
+  language             String      @default("vi")
+  tone                 String
+  audience             String
+  writingRulesJson     Json        @map("writing_rules_json")
+  forbiddenPhrasesJson Json        @map("forbidden_phrases_json")
+  defaultHashtagsJson  Json        @map("default_hashtags_json")
+  attributionTemplate  String      @map("attribution_template")
+  headlineStyle        String      @map("headline_style")
+  defaultPostLength    Int         @default(300) @map("default_post_length")
+  emojiPolicy          EmojiPolicy @default(MODERATE) @map("emoji_policy")
+  isDefault            Boolean     @default(false) @map("is_default")
+  createdByUserId      String      @map("created_by_user_id")
+  createdAt            DateTime    @default(now()) @map("created_at")
+  updatedAt            DateTime    @updatedAt @map("updated_at")
+  deletedAt            DateTime?   @map("deleted_at")
+
+  drafts Draft[]
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId, isDefault])
+  @@map("brand_profiles")
+}
+
+model FactSheet {
+  id                   String          @id @default(uuid())
+  workspaceId          String          @map("workspace_id")
+  articleId            String?         @map("article_id")
+  clusterId            String?         @map("cluster_id")
+  contentHash          String          @map("content_hash")
+  factsJson            Json            @map("facts_json")
+  conflictsJson        Json?           @map("conflicts_json")
+  uncertaintyFlagsJson Json?           @map("uncertainty_flags_json")
+  provider             String
+  model                String
+  promptVersion        String          @map("prompt_version")
+  inputTokens          Int             @map("input_tokens")
+  outputTokens         Int             @map("output_tokens")
+  estimatedCostMinor   Int             @map("estimated_cost_minor")
+  currency             String          @default("USD")
+  status               FactSheetStatus @default(PENDING)
+  errorCode            String?         @map("error_code")
+  createdAt            DateTime        @default(now()) @map("created_at")
+  updatedAt            DateTime        @updatedAt @map("updated_at")
+
+  @@index([workspaceId, contentHash])
+  @@map("fact_sheets")
+}
+
+model Draft {
+  id                String      @id @default(uuid())
+  workspaceId       String      @map("workspace_id")
+  clusterId         String?     @map("cluster_id")
+  primaryArticleId  String?     @map("primary_article_id")
+  brandProfileId    String      @map("brand_profile_id")
+  status            DraftStatus @default(DRAFT)
+  currentVersionId  String?     @map("current_version_id")
+  createdByUserId   String      @map("created_by_user_id")
+  submittedByUserId String?     @map("submitted_by_user_id")
+  submittedAt       DateTime?   @map("submitted_at")
+  approvedByUserId  String?     @map("approved_by_user_id")
+  approvedAt        DateTime?   @map("approved_at")
+  approvalRevokedAt DateTime?   @map("approval_revoked_at")
+  createdAt         DateTime    @default(now()) @map("created_at")
+  updatedAt         DateTime    @updatedAt @map("updated_at")
+  archivedAt        DateTime?   @map("archived_at")
+
+  brandProfile BrandProfile   @relation(fields: [brandProfileId], references: [id])
+  versions     DraftVersion[]
+  reviews      DraftReview[]
+
+  @@index([workspaceId, status, updatedAt])
+  @@index([workspaceId, createdByUserId])
+  @@map("drafts")
+}
+
+model DraftVersion {
+  id                 String             @id @default(uuid())
+  workspaceId        String             @map("workspace_id")
+  draftId            String             @map("draft_id")
+  versionNumber      Int                @map("version_number")
+  headline           String
+  hook               String
+  body               String
+  whyItMatters       String             @map("why_it_matters")
+  discussionQuestion String?            @map("discussion_question")
+  hashtagsJson       Json               @map("hashtags_json")
+  attributionLine    String             @map("attribution_line")
+  recommendedLink    String?            @map("recommended_link")
+  contentType        DraftContentType   @map("content_type")
+  riskFlagsJson      Json               @map("risk_flags_json")
+  verificationJson   Json               @map("verification_json")
+  similarityScore    Float              @map("similarity_score")
+  sourceClaimIdsJson Json               @map("source_claim_ids_json")
+  createdByPlain     DraftCreatedByType @map("created_by_type")
+  createdByUserId    String             @map("created_by_user_id")
+  provider           String?
+  model              String?
+  promptVersion      String?            @map("prompt_version")
+  inputTokens        Int?               @map("input_tokens")
+  outputTokens       Int?               @map("output_tokens")
+  estimatedCostMinor Int?               @map("estimated_cost_minor")
+  currency           String?
+  createdAt          DateTime           @default(now()) @map("created_at")
+
+  draft Draft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+
+  @@unique([draftId, versionNumber])
+  @@map("draft_versions")
+}
+
+model DraftReview {
+  id             String         @id @default(uuid())
+  workspaceId    String         @map("workspace_id")
+  draftId        String         @map("draft_id")
+  draftVersionId String         @map("draft_version_id")
+  reviewerUserId String         @map("reviewer_user_id")
+  decision       ReviewDecision
+  comment        String?
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  draft Draft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+
+  @@map("draft_reviews")
+}
+
+model PromptTemplate {
+  id                  String         @id @default(uuid())
+  taskType            PromptTaskType @map("task_type")
+  version             String
+  name                String
+  systemPrompt        String         @map("system_prompt")
+  userPromptTemplate  String         @map("user_prompt_template")
+  outputSchemaVersion String         @map("output_schema_version")
+  status              String         @default("ACTIVE")
+  createdAt           DateTime       @default(now()) @map("created_at")
+  deprecatedAt        DateTime?      @map("deprecated_at")
+
+  @@unique([taskType, version])
+  @@map("prompt_templates")
+}
+
+model AiUsageEvent {
+  id                 String         @id @default(uuid())
+  workspaceId        String         @map("workspace_id")
+  userId             String         @map("user_id")
+  taskType           PromptTaskType @map("task_type")
+  provider           String
+  model              String
+  inputTokens        Int            @map("input_tokens")
+  outputTokens       Int            @map("output_tokens")
+  estimatedCostMinor Int            @map("estimated_cost_minor")
+  currency           String         @default("USD")
+  requestHash        String         @map("request_hash")
+  status             String         @default("SUCCESS")
+  durationMs         Int            @map("duration_ms")
+  metadataJson       Json?          @map("metadata_json")
+  occurredAt         DateTime       @default(now()) @map("occurred_at")
+
+  @@index([workspaceId, occurredAt])
+  @@map("ai_usage_events")
+}
+
+model EditorialPolicy {
+  id                       String   @id @default(uuid())
+  workspaceId              String   @unique @map("workspace_id")
+  requireSeparateReviewer  Boolean  @default(false) @map("require_separate_reviewer")
+  allowAiVerification      Boolean  @default(true) @map("allow_ai_verification")
+  blockHighRiskSubmission  Boolean  @default(true) @map("block_high_risk_submission")
+  maximumSimilarityScore   Float    @default(0.75) @map("maximum_similarity_score")
+  maximumQuoteWords        Int      @default(25) @map("maximum_quote_words")
+  defaultDraftLanguage     String   @default("vi") @map("default_draft_language")
+  monthlyAiBudgetMinor     Int      @default(2000) @map("monthly_ai_budget_minor")
+  monthlyAiGenerationLimit Int      @default(200) @map("monthly_ai_generation_limit")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+
+  @@map("editorial_policies")
+}
+
+enum FacebookConnectionStatus {
+  PENDING
+  ACTIVE
+  NEEDS_REAUTH
+  INSUFFICIENT_PERMISSION
+  REVOKED
+  DISABLED
+  ERROR
+}
+
+model FacebookOauthState {
+  id                     String    @id @default(uuid())
+  workspaceId            String    @map("workspace_id")
+  userId                 String    @map("user_id")
+  stateHash              String    @map("state_hash")
+  pkceVerifierCiphertext String?   @map("pkce_verifier_ciphertext")
+  pkceVerifierIv         String?   @map("pkce_verifier_iv")
+  pkceVerifierAuthTag    String?   @map("pkce_verifier_auth_tag")
+  redirectUri            String    @map("redirect_uri")
+  expiresAt              DateTime  @map("expires_at")
+  usedAt                 DateTime? @map("used_at")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  ipHash                 String?   @map("ip_hash")
+  userAgentHash          String?   @map("user_agent_hash")
+
+  @@index([expiresAt])
+  @@map("facebook_oauth_states")
+}
+
+model FacebookPageConnection {
+  id                   String                   @id @default(uuid())
+  workspaceId          String                   @map("workspace_id")
+  pageId               String                   @map("page_id")
+  pageName             String                   @map("page_name")
+  pageCategory         String?                  @map("page_category")
+  status               FacebookConnectionStatus @default(PENDING)
+  grantedTasksJson     Json                     @map("granted_tasks_json")
+  grantedScopesJson    Json                     @map("granted_scopes_json")
+  tokenCiphertext      String                   @map("token_ciphertext")
+  tokenIv              String                   @map("token_iv")
+  tokenAuthTag         String                   @map("token_auth_tag")
+  tokenKeyVersion      String                   @map("token_key_version")
+  tokenFingerprint     String                   @map("token_fingerprint")
+  tokenExpiresAt       DateTime?                @map("token_expires_at")
+  lastValidatedAt      DateTime?                @map("last_validated_at")
+  lastValidationStatus String?                  @map("last_validation_status")
+  lastErrorCode        String?                  @map("last_error_code")
+  lastErrorMessage     String?                  @map("last_error_message")
+  connectedByUserId    String                   @map("connected_by_user_id")
+  disabledAt           DateTime?                @map("disabled_at")
+  createdAt            DateTime                 @default(now()) @map("created_at")
+  updatedAt            DateTime                 @updatedAt @map("updated_at")
+  deletedAt            DateTime?                @map("deleted_at")
+
+  publishJobs PublishJob[]
+
+  @@unique([workspaceId, pageId])
+  @@index([workspaceId, status])
+  @@map("facebook_page_connections")
+}
+
+enum PublishJobStatus {
+  QUEUED
+  SCHEDULED
+  DUE
+  PUBLISHING
+  PUBLISHED
+  RETRYING
+  FAILED
+  RESULT_UNKNOWN
+  CANCELLED
+  EXPIRED
+}
+
+enum PublicationType {
+  TEXT
+  LINK
+  PHOTO
+}
+
+model PublishJob {
+  id                String           @id @default(uuid())
+  workspaceId       String           @map("workspace_id")
+  draftId           String           @map("draft_id")
+  draftVersionId    String           @map("draft_version_id")
+  pageConnectionId  String           @map("page_connection_id")
+  status            PublishJobStatus @default(QUEUED)
+  publicationType   PublicationType  @map("publication_type")
+  messageSnapshot   String           @map("message_snapshot")
+  linkSnapshot      String?          @map("link_snapshot")
+  mediaSnapshotJson Json?            @map("media_snapshot_json")
+  idempotencyKey    String           @unique @map("idempotency_key")
+  attemptCount      Int              @default(0) @map("attempt_count")
+  facebookPostId    String?          @map("facebook_post_id")
+  facebookPermalink String?          @map("facebook_permalink")
+  lastErrorCategory String?          @map("last_error_category")
+  lastErrorCode     String?          @map("last_error_code")
+  lastErrorSubcode  String?          @map("last_error_subcode")
+  lastErrorMessage  String?          @map("last_error_message")
+  createdByUserId   String           @map("created_by_user_id")
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+  startedAt         DateTime?        @map("started_at")
+  publishedAt       DateTime?        @map("published_at")
+  failedAt          DateTime?        @map("failed_at")
+  cancelledAt       DateTime?        @map("cancelled_at")
+
+  // Phase 5 scheduling fields
+  publishAtUtc          DateTime?   @map("publish_at_utc")
+  requestedTimezone     String?     @map("requested_timezone")
+  requestedLocalTime    String?     @map("requested_local_time")
+  scheduleCreatedAt     DateTime?   @map("schedule_created_at")
+  rescheduledAt         DateTime?   @map("rescheduled_at")
+  cancelledByUserId     String?     @map("cancelled_by_user_id")
+  cancellationReason    String?     @map("cancellation_reason")
+  scheduleVersion       Int         @default(0) @map("schedule_version")
+  executionDeadlineUtc  DateTime?   @map("execution_deadline_utc")
+  nextRetryAt           DateTime?   @map("next_retry_at")
+  lockedAt              DateTime?   @map("locked_at")
+  lockOwner             String?     @map("lock_owner")
+  notificationStateJson Json?       @map("notification_state_json")
+
+  pageConnection FacebookPageConnection @relation(fields: [pageConnectionId], references: [id])
+  attempts       PublishAttempt[]
+
+  @@index([workspaceId, status, createdAt])
+  @@index([status, publishAtUtc])
+  @@index([workspaceId, status, publishAtUtc])
+  @@index([workspaceId, pageConnectionId, publishAtUtc])
+  @@index([nextRetryAt])
+  @@index([workspaceId, pageConnectionId, createdAt])
+  @@index([facebookPostId])
+  @@map("publish_jobs")
+}
+
+model PublishAttempt {
+  id                    String    @id @default(uuid())
+  workspaceId           String    @map("workspace_id")
+  publishJobId          String    @map("publish_job_id")
+  attemptNumber         Int       @map("attempt_number")
+  startedAt             DateTime? @map("started_at")
+  finishedAt            DateTime? @map("finished_at")
+  httpStatus            Int?      @map("http_status")
+  providerErrorCategory String?   @map("provider_error_category")
+  providerErrorCode     String?   @map("provider_error_code")
+  providerErrorSubcode  String?   @map("provider_error_subcode")
+  sanitizedResponseJson Json?     @map("sanitized_response_json")
+  requestCorrelationId  String?   @map("request_correlation_id")
+  success               Boolean   @default(false)
+  createdAt             DateTime  @default(now()) @map("created_at")
+
+  publishJob PublishJob @relation(fields: [publishJobId], references: [id], onDelete: Cascade)
+
+  @@unique([publishJobId, attemptNumber])
+  @@map("publish_attempts")
+}
+
+// ─── Phase 5: Notifications ────────────────────────────────────────────────
+
+model NotificationPreference {
+  id                      String   @id @default(uuid())
+  workspaceId             String   @map("workspace_id")
+  userId                  String   @map("user_id")
+  inAppEnabled            Boolean  @default(true) @map("in_app_enabled")
+  emailEnabled            Boolean  @default(true) @map("email_enabled")
+  editorialEventsJson     Json     @default("{}") @map("editorial_events_json")
+  publishingEventsJson    Json     @default("{}") @map("publishing_events_json")
+  operationalEventsJson   Json     @default("{}") @map("operational_events_json")
+  quietHoursEnabled       Boolean  @default(false) @map("quiet_hours_enabled")
+  quietHoursStart         String   @default("22:00") @map("quiet_hours_start")
+  quietHoursEnd           String   @default("07:00") @map("quiet_hours_end")
+  quietHoursTimezone      String   @default("Asia/Ho_Chi_Minh") @map("quiet_hours_timezone")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  @@unique([workspaceId, userId])
+  @@map("notification_preferences")
+}
+
+enum NotificationCategory {
+  EDITORIAL
+  PUBLISHING
+  FACEBOOK_CONNECTION
+  SOURCE_HEALTH
+  AI_USAGE
+  SYSTEM
+}
+
+enum NotificationSeverity {
+  INFO
+  SUCCESS
+  WARNING
+  ERROR
+  CRITICAL
+}
+
+enum NotificationStatus {
+  UNREAD
+  READ
+  ARCHIVED
+}
+
+model Notification {
+  id               String               @id @default(uuid())
+  workspaceId      String               @map("workspace_id")
+  userId           String               @map("user_id")
+  type             String
+  category         NotificationCategory
+  title            String
+  message          String
+  resourceType     String?              @map("resource_type")
+  resourceId       String?              @map("resource_id")
+  actionUrl        String?              @map("action_url")
+  severity         NotificationSeverity @default(INFO)
+  status           NotificationStatus   @default(UNREAD)
+  deduplicationKey String?              @unique @map("deduplication_key")
+  createdAt        DateTime             @default(now()) @map("created_at")
+  readAt           DateTime?            @map("read_at")
+  archivedAt       DateTime?            @map("archived_at")
+  expiresAt        DateTime?            @map("expires_at")
+  metadataJson     Json?                @map("metadata_json")
+
+  deliveries NotificationDelivery[]
+
+  @@index([workspaceId, userId, status, createdAt])
+  @@index([workspaceId, category, createdAt])
+  @@map("notifications")
+}
+
+enum DeliveryChannel {
+  IN_APP
+  EMAIL
+}
+
+enum DeliveryStatus {
+  PENDING
+  QUEUED
+  SENDING
+  SENT
+  RETRYING
+  FAILED
+  SKIPPED
+}
+
+model NotificationDelivery {
+  id                String          @id @default(uuid())
+  workspaceId       String          @map("workspace_id")
+  notificationId    String          @map("notification_id")
+  userId            String          @map("user_id")
+  channel           DeliveryChannel
+  status            DeliveryStatus  @default(PENDING)
+  attemptCount      Int             @default(0) @map("attempt_count")
+  provider          String?
+  providerMessageId String?         @map("provider_message_id")
+  lastErrorCode     String?         @map("last_error_code")
+  lastErrorMessage  String?         @map("last_error_message")
+  nextAttemptAt     DateTime?       @map("next_attempt_at")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  sentAt            DateTime?       @map("sent_at")
+  failedAt          DateTime?       @map("failed_at")
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@unique([notificationId, userId, channel])
+  @@index([workspaceId, status, nextAttemptAt])
+  @@map("notification_deliveries")
+}
+
+model NotificationTemplate {
+  id              String    @id @default(uuid())
+  templateKey     String    @map("template_key")
+  channel         String
+  language        String    @default("vi")
+  version         Int       @default(1)
+  subjectTemplate String?   @map("subject_template")
+  bodyTemplate    String    @map("body_template")
+  status          String    @default("ACTIVE")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  deprecatedAt    DateTime? @map("deprecated_at")
+
+  @@unique([templateKey, channel, language, version])
+  @@map("notification_templates")
+}
+
+// ─── Phase 5: Transactional Outbox ─────────────────────────────────────────
+
+enum OutboxEventStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  FAILED
+}
+
+model OutboxEvent {
+  id             String           @id @default(uuid())
+  workspaceId    String           @map("workspace_id")
+  eventType      String           @map("event_type")
+  aggregateType  String           @map("aggregate_type")
+  aggregateId    String           @map("aggregate_id")
+  payloadJson    Json             @map("payload_json")
+  status         OutboxEventStatus @default(PENDING)
+  attemptCount   Int              @default(0) @map("attempt_count")
+  availableAt    DateTime         @default(now()) @map("available_at")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  processedAt    DateTime?        @map("processed_at")
+  lastError      String?          @map("last_error")
+  correlationId  String?          @map("correlation_id")
+
+  @@index([status, availableAt])
+  @@index([workspaceId, aggregateType, aggregateId])
+  @@map("outbox_events")
+}
+
+enum PlanStatus {
+  ACTIVE
+  ARCHIVED
+  HIDDEN
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  GRACE_PERIOD
+  CANCEL_AT_PERIOD_END
+  CANCELLED
+  EXPIRED
+  SUSPENDED
+  INCOMPLETE
+}
+
+enum BillingInterval {
+  MONTHLY
+  ANNUAL
+}
+
+enum BillingWebhookEventStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  FAILED
+  IGNORED
+}
+
+enum UsageMetric {
+  AI_DRAFT_GENERATIONS
+  AI_TOKENS
+  ARTICLE_EXTRACTIONS
+  CONNECTED_PAGES
+  NEWS_SOURCES
+  TEAM_MEMBERS
+  PUBLISHED_POSTS
+  SCHEDULED_POSTS
+  BRAND_PROFILES
+}
+
+enum UsageReservationStatus {
+  RESERVED
+  CONSUMED
+  RELEASED
+  EXPIRED
+}
+
+enum FeatureFlagStatus {
+  ACTIVE
+  DISABLED
+  ARCHIVED
+}
+
+enum FeatureFlagScopeType {
+  SYSTEM
+  PLAN
+  WORKSPACE
+  USER
+}
+
+enum SettingStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum SettingsHistoryScopeType {
+  SYSTEM
+  WORKSPACE
+}
+
+enum SettingsChangeSource {
+  UI
+  API
+  MIGRATION
+  SYSTEM
+  ROLLBACK
+}
+
+enum WhiteLabelStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum AnnouncementStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+model Plan {
+  id                String      @id @default(uuid())
+  code              String      @unique
+  name              String
+  description       String?
+  status            PlanStatus  @default(HIDDEN)
+  isPublic          Boolean     @default(false) @map("is_public")
+  trialEligible     Boolean     @default(false) @map("trial_eligible")
+  currency          String      @default("USD")
+  monthlyPriceMinor Int?        @map("monthly_price_minor")
+  annualPriceMinor  Int?        @map("annual_price_minor")
+  limitsJson        Json        @map("limits_json")
+  featuresJson      Json        @map("features_json")
+  sortOrder         Int         @default(0) @map("sort_order")
+  createdAt         DateTime    @default(now()) @map("created_at")
+  updatedAt         DateTime    @updatedAt @map("updated_at")
+  archivedAt        DateTime?   @map("archived_at")
+
+  versions      PlanVersion[]
+  subscriptions Subscription[]
+
+  @@index([status, isPublic, sortOrder])
+  @@map("plans")
+}
+
+model PlanVersion {
+  id                String    @id @default(uuid())
+  planId            String    @map("plan_id")
+  version           Int
+  currency          String    @default("USD")
+  monthlyPriceMinor Int?      @map("monthly_price_minor")
+  annualPriceMinor  Int?      @map("annual_price_minor")
+  limitsJson        Json      @map("limits_json")
+  featuresJson      Json      @map("features_json")
+  effectiveFrom     DateTime  @default(now()) @map("effective_from")
+  effectiveUntil    DateTime? @map("effective_until")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  plan          Plan           @relation(fields: [planId], references: [id], onDelete: Restrict)
+  subscriptions Subscription[]
+
+  @@unique([planId, version])
+  @@index([planId, effectiveFrom])
+  @@map("plan_versions")
+}
+
+model BillingCustomer {
+  id                 String   @id @default(uuid())
+  workspaceId        String   @map("workspace_id")
+  provider           String
+  providerCustomerId String   @map("provider_customer_id")
+  billingEmail       String?  @map("billing_email")
+  billingName        String?  @map("billing_name")
+  billingCountry     String?  @map("billing_country")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  subscriptions Subscription[]
+
+  @@unique([provider, providerCustomerId])
+  @@unique([workspaceId, provider])
+  @@map("billing_customers")
+}
+
+model Subscription {
+  id                     String             @id @default(uuid())
+  workspaceId            String             @unique @map("workspace_id")
+  planId                 String             @map("plan_id")
+  planVersionId          String?            @map("plan_version_id")
+  billingCustomerId      String?            @map("billing_customer_id")
+  provider               String
+  providerSubscriptionId String?            @map("provider_subscription_id")
+  status                 SubscriptionStatus @default(INCOMPLETE)
+  billingInterval        BillingInterval    @default(MONTHLY) @map("billing_interval")
+  trialStartedAt         DateTime?          @map("trial_started_at")
+  trialEndsAt            DateTime?          @map("trial_ends_at")
+  currentPeriodStart     DateTime?          @map("current_period_start")
+  currentPeriodEnd       DateTime?          @map("current_period_end")
+  gracePeriodEndsAt      DateTime?          @map("grace_period_ends_at")
+  cancelAtPeriodEnd      Boolean            @default(false) @map("cancel_at_period_end")
+  cancelledAt            DateTime?          @map("cancelled_at")
+  endedAt                DateTime?          @map("ended_at")
+  suspensionReason       String?            @map("suspension_reason")
+  lastProviderSyncAt     DateTime?          @map("last_provider_sync_at")
+  metadataJson           Json?              @map("metadata_json")
+  createdAt              DateTime           @default(now()) @map("created_at")
+  updatedAt              DateTime           @updatedAt @map("updated_at")
+
+  plan            Plan             @relation(fields: [planId], references: [id], onDelete: Restrict)
+  planVersion     PlanVersion?     @relation(fields: [planVersionId], references: [id], onDelete: SetNull)
+  billingCustomer BillingCustomer? @relation(fields: [billingCustomerId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, status])
+  @@index([provider, providerSubscriptionId])
+  @@map("subscriptions")
+}
+
+model BillingWebhookEvent {
+  id                 String                    @id @default(uuid())
+  provider           String
+  providerEventId    String                    @map("provider_event_id")
+  eventType          String                    @map("event_type")
+  signatureVerified  Boolean                   @default(false) @map("signature_verified")
+  status             BillingWebhookEventStatus @default(RECEIVED)
+  payloadHash        String                    @map("payload_hash")
+  safePayloadJson    Json                      @map("safe_payload_json")
+  attemptCount       Int                       @default(0) @map("attempt_count")
+  receivedAt         DateTime                  @default(now()) @map("received_at")
+  processedAt        DateTime?                 @map("processed_at")
+  lastErrorCode      String?                   @map("last_error_code")
+  lastErrorMessage   String?                   @map("last_error_message")
+
+  @@unique([provider, providerEventId])
+  @@index([provider, status, receivedAt])
+  @@map("billing_webhook_events")
+}
+
+model UsageCounter {
+  id               String      @id @default(uuid())
+  workspaceId      String      @map("workspace_id")
+  metric           UsageMetric
+  periodStart      DateTime    @map("period_start")
+  periodEnd        DateTime    @map("period_end")
+  usedQuantity     Int         @default(0) @map("used_quantity")
+  reservedQuantity Int         @default(0) @map("reserved_quantity")
+  limitQuantity    Int?        @map("limit_quantity")
+  updatedAt        DateTime    @updatedAt @map("updated_at")
+
+  @@unique([workspaceId, metric, periodStart, periodEnd])
+  @@index([workspaceId, metric, updatedAt])
+  @@map("usage_counters")
+}
+
+model UsageReservation {
+  id             String                 @id @default(uuid())
+  workspaceId    String                 @map("workspace_id")
+  metric         UsageMetric
+  quantity       Int
+  reservationKey String                 @map("reservation_key")
+  status         UsageReservationStatus @default(RESERVED)
+  expiresAt      DateTime               @map("expires_at")
+  consumedAt     DateTime?              @map("consumed_at")
+  releasedAt     DateTime?              @map("released_at")
+  createdAt      DateTime               @default(now()) @map("created_at")
+
+  @@unique([workspaceId, reservationKey])
+  @@index([workspaceId, metric, status])
+  @@index([expiresAt, status])
+  @@map("usage_reservations")
+}
+
+model FeatureFlag {
+  id                String            @id @default(uuid())
+  key               String            @unique
+  name              String
+  description       String?
+  defaultEnabled    Boolean           @default(false) @map("default_enabled")
+  status            FeatureFlagStatus @default(ACTIVE)
+  rolloutPercentage Int               @default(100) @map("rollout_percentage")
+  rulesJson         Json?             @map("rules_json")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+
+  overrides FeatureFlagOverride[]
+
+  @@map("feature_flags")
+}
+
+model FeatureFlagOverride {
+  id              String               @id @default(uuid())
+  featureFlagId   String               @map("feature_flag_id")
+  scopeType       FeatureFlagScopeType @map("scope_type")
+  workspaceId     String?              @map("workspace_id")
+  userId          String?              @map("user_id")
+  planCode        String?              @map("plan_code")
+  enabled         Boolean
+  reason          String?
+  expiresAt       DateTime?            @map("expires_at")
+  createdByUserId String               @map("created_by_user_id")
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @updatedAt @map("updated_at")
+
+  featureFlag FeatureFlag @relation(fields: [featureFlagId], references: [id], onDelete: Cascade)
+
+  @@index([featureFlagId, scopeType, workspaceId, userId, planCode])
+  @@map("feature_flag_overrides")
+}
+
+model SystemSetting {
+  id                String        @id @default(uuid())
+  key               String        @unique
+  category          String
+  valueJson         Json          @map("value_json")
+  schemaVersion     Int           @default(1) @map("schema_version")
+  isSensitive       Boolean       @default(false) @map("is_sensitive")
+  isRuntimeEditable Boolean       @default(true) @map("is_runtime_editable")
+  requiresRestart   Boolean       @default(false) @map("requires_restart")
+  status            SettingStatus @default(ACTIVE)
+  updatedByUserId   String?       @map("updated_by_user_id")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  @@index([category, status])
+  @@map("system_settings")
+}
+
+model WorkspaceSetting {
+  id              String   @id @default(uuid())
+  workspaceId     String   @map("workspace_id")
+  key             String
+  category        String
+  valueJson       Json     @map("value_json")
+  schemaVersion   Int      @default(1) @map("schema_version")
+  updatedByUserId String?  @map("updated_by_user_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@unique([workspaceId, key])
+  @@index([workspaceId, category])
+  @@map("workspace_settings")
+}
+
+model SettingsChangeHistory {
+  id              String                   @id @default(uuid())
+  scopeType       SettingsHistoryScopeType @map("scope_type")
+  workspaceId     String?                  @map("workspace_id")
+  settingKey      String                   @map("setting_key")
+  oldValueJson    Json?                    @map("old_value_json")
+  newValueJson    Json?                    @map("new_value_json")
+  changedByUserId String?                  @map("changed_by_user_id")
+  reason          String?
+  changeSource    SettingsChangeSource     @map("change_source")
+  createdAt       DateTime                 @default(now()) @map("created_at")
+
+  @@index([scopeType, workspaceId, settingKey, createdAt])
+  @@map("settings_change_history")
+}
+
+model WhiteLabelProfile {
+  id                 String           @id @default(uuid())
+  workspaceId        String           @unique @map("workspace_id")
+  productDisplayName String?          @map("product_display_name")
+  logoObjectKey      String?          @map("logo_object_key")
+  faviconObjectKey   String?          @map("favicon_object_key")
+  accentColor        String?          @map("accent_color")
+  supportEmail       String?          @map("support_email")
+  supportUrl         String?          @map("support_url")
+  privacyUrl         String?          @map("privacy_url")
+  termsUrl           String?          @map("terms_url")
+  emailSenderName    String?          @map("email_sender_name")
+  status             WhiteLabelStatus @default(DISABLED)
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+
+  @@map("white_label_profiles")
+}
+
+model SystemAnnouncement {
+  id              String             @id @default(uuid())
+  title           String
+  message         String
+  severity        NotificationSeverity
+  status          AnnouncementStatus @default(ACTIVE)
+  startsAt        DateTime?          @map("starts_at")
+  endsAt          DateTime?          @map("ends_at")
+  createdByUserId String?            @map("created_by_user_id")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+
+  @@index([status, startsAt, endsAt])
+  @@map("system_announcements")
+}
