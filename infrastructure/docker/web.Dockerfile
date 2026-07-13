@@ -35,7 +35,8 @@ COPY apps/web/package.json ./apps/web/package.json
 COPY --from=builder /app/apps/web/.next ./apps/web/.next
 COPY --from=builder /app/apps/web/public ./apps/web/public
 RUN pnpm install --prod --frozen-lockfile
-RUN pnpm --filter @newsflow/database db:generate
+COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/client
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 RUN chown -R node:node /app
 
 USER node
