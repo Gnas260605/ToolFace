@@ -112,89 +112,135 @@ export default function DraftsListPage() {
   const statuses = ['GENERATING', 'READY_FOR_REVIEW', 'CHANGES_REQUESTED', 'APPROVED', 'ARCHIVED'];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-zinc-800/40 pb-5">
         <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">Bản nháp</h1>
-          <p className="text-sm text-gray-400 mt-1">Quản lý toàn bộ nội dung editorial đang được tạo và biên tập.</p>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-accent-400 animate-pulse" />
+            <p className="text-[10px] font-bold tracking-[0.22em] uppercase text-accent-400 font-display">QUẢN LÝ BIÊN TẬP AI</p>
+          </div>
+          <h1 className="font-display text-2xl font-extrabold text-zinc-100 tracking-tight flex items-center gap-2">
+            Bản nháp Editorial
+          </h1>
+          <p className="text-xs text-zinc-400 mt-1 font-sans">
+            Danh sách toàn bộ kịch bản bài viết đang trong tiến trình tạo, kiểm duyệt và xuất bản.
+          </p>
         </div>
+
         <button
           onClick={handleCreate}
           disabled={creating}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-brand-600 to-blue-600 text-white text-sm font-semibold shadow-lg hover:from-brand-500 hover:to-blue-500 transition-all disabled:opacity-50"
+          className="btn-shimmer flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-accent-500 via-teal-500 to-emerald-600 hover:from-accent-400 hover:to-emerald-500 text-white text-xs font-bold shadow-md shadow-accent-950/40 transition-all disabled:opacity-50 font-display self-start sm:self-auto"
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
-          </svg>
-          {creating ? 'Đang tạo...' : 'Tạo bản nháp mới'}
+          {creating ? (
+            <>
+              <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              <span>Đang tạo bản nháp...</span>
+            </>
+          ) : (
+            <>
+              <span>✨</span>
+              <span>Tạo bản nháp mới</span>
+            </>
+          )}
         </button>
       </div>
 
       {error && (
-        <div className="px-4 py-3 rounded-xl bg-red-900/30 border border-red-700/40 text-red-300 text-sm">{error}</div>
+        <div className="p-4 rounded-2xl bg-rose-950/40 border border-rose-500/40 text-rose-200 text-xs flex items-center justify-between shadow-lg">
+          <span className="font-medium">⚠️ {error}</span>
+          <button onClick={() => setError(null)} className="text-zinc-400 hover:text-zinc-200 font-bold px-2">✕</button>
+        </div>
       )}
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2 p-1.5 rounded-2xl bg-surface-raised/60 border border-zinc-800/50 backdrop-blur-md">
         <button
           onClick={() => setFilterStatus('')}
-          className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all border ${!filterStatus ? 'bg-brand-600/20 text-brand-400 border-brand-600/40' : 'text-gray-500 border-gray-700/40 hover:text-gray-300'}`}
+          className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all font-display ${
+            !filterStatus
+              ? 'bg-accent-500/20 text-accent-300 border border-accent-500/40 shadow-sm'
+              : 'text-zinc-400 hover:text-zinc-200 border border-transparent hover:bg-zinc-800/40'
+          }`}
         >
-          Tất cả
+          Tất cả bản nháp
         </button>
-        {statuses.map((s) => (
-          <button
-            key={s}
-            onClick={() => setFilterStatus(s)}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all border ${filterStatus === s ? 'bg-brand-600/20 text-brand-400 border-brand-600/40' : 'text-gray-500 border-gray-700/40 hover:text-gray-300'}`}
-          >
-            {STATUS_CONFIG[s]?.label || s}
-          </button>
-        ))}
+        {statuses.map((s) => {
+          const isActive = filterStatus === s;
+          const cfg = STATUS_CONFIG[s] || { label: s, className: '' };
+          return (
+            <button
+              key={s}
+              onClick={() => setFilterStatus(s)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all font-sans border ${
+                isActive
+                  ? 'bg-accent-500/20 text-accent-300 border-accent-500/40 shadow-sm'
+                  : 'text-zinc-400 border-transparent hover:text-zinc-200 hover:bg-zinc-800/40'
+              }`}
+            >
+              {cfg.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* Draft List */}
       {loading ? (
-        <div className="flex items-center justify-center h-48 text-gray-500 text-sm">Đang tải...</div>
+        <div className="space-y-3">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="p-5 rounded-2xl bg-surface-raised/60 border border-zinc-800/40 space-y-2 shimmer">
+              <div className="h-5 w-2/3 bg-zinc-800/60 rounded" />
+              <div className="h-3 w-1/3 bg-zinc-800/40 rounded" />
+            </div>
+          ))}
+        </div>
       ) : drafts.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-48 text-gray-500 text-sm gap-3">
-          <svg className="w-10 h-10 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-          </svg>
-          <span>Chưa có bản nháp nào{filterStatus && ` với trạng thái "${STATUS_CONFIG[filterStatus]?.label}"`}.</span>
+        <div className="flex flex-col items-center justify-center py-20 rounded-2xl bg-surface-raised/40 border border-zinc-800/40 space-y-3">
+          <div className="text-3xl">📝</div>
+          <h3 className="text-sm font-bold text-zinc-200 font-display">Chưa có bản nháp nào</h3>
+          <p className="text-xs text-zinc-500 max-w-sm text-center font-sans">
+            {filterStatus
+              ? `Không tìm thấy bản nháp nào ở trạng thái "${STATUS_CONFIG[filterStatus]?.label}".`
+              : 'Bấm nút "Tạo bản nháp mới" hoặc chọn một bài viết từ "Luồng tin tức" để tạo kịch bản AI.'}
+          </p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="grid grid-cols-1 gap-3">
           {drafts.map((d) => {
-            const cfg = STATUS_CONFIG[d.status] || { label: d.status, className: 'bg-gray-800/40 text-gray-400 border-gray-700/20' };
+            const cfg = STATUS_CONFIG[d.status] || { label: d.status, className: 'bg-zinc-800/60 text-zinc-400 border-zinc-700/40' };
             const latestVersion = d.versions?.[0];
             return (
-              <button
+              <div
                 key={d.id}
                 onClick={() => router.push(`/app/${workspaceId}/drafts/${d.id}`)}
-                className="w-full text-left bg-[#0c1323] border border-gray-800/60 rounded-2xl p-4 hover:border-brand-700/50 transition-all group"
+                className="group p-5 rounded-2xl bg-surface-raised border border-zinc-800/60 card-hover transition-all duration-200 cursor-pointer shadow-md flex items-start justify-between gap-4"
               >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-white truncate leading-tight">
-                      {latestVersion?.headline || 'Đang xử lý...'}
+                <div className="flex-1 min-w-0 space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-bold text-zinc-100 group-hover:text-accent-300 transition-colors truncate font-display leading-snug">
+                      {latestVersion?.headline || 'Bản nháp đang khởi tạo...'}
                     </p>
-                    {latestVersion?.body && (
-                      <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{latestVersion.body}</p>
-                    )}
-                    <div className="flex items-center gap-3 mt-2">
-                      {d.brandProfile && (
-                        <span className="text-[10px] text-gray-600">{d.brandProfile.name}</span>
-                      )}
-                      <span className="text-[10px] text-gray-700">{formatRelativeTime(d.updatedAt)}</span>
-                    </div>
                   </div>
-                  <span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border shrink-0 ${cfg.className}`}>
-                    {cfg.label}
-                  </span>
+                  {latestVersion?.body && (
+                    <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed font-sans font-normal">
+                      {latestVersion.body}
+                    </p>
+                  )}
+                  <div className="flex items-center gap-3 pt-1 text-[10px] text-zinc-500 font-mono">
+                    {d.brandProfile && (
+                      <span className="flex items-center gap-1 text-accent-400/80">
+                        🏷️ {d.brandProfile.name}
+                      </span>
+                    )}
+                    <span>⏱️ {formatRelativeTime(d.updatedAt)}</span>
+                  </div>
                 </div>
-              </button>
+
+                <span className={`px-3 py-1 rounded-full text-[10px] font-bold border shrink-0 font-display ${cfg.className}`}>
+                  {cfg.label}
+                </span>
+              </div>
             );
           })}
         </div>
