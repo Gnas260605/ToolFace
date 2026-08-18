@@ -88,7 +88,7 @@ export async function safeFetch(targetUrl: string, options: SafeFetchOptions = {
   const maxBytes = options.maxBytes ?? 5 * 1024 * 1024; // Default: 5MB
   const connectTimeoutMs = options.connectTimeoutMs ?? 5000;
   const totalTimeoutMs = options.totalTimeoutMs ?? 15000;
-  const userAgent = options.userAgent ?? 'NewsFlowAI/0.1.0 Ingestion Engine';
+  const userAgent = options.userAgent ?? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
   let currentUrl = targetUrl;
   let redirectCount = 0;
@@ -122,7 +122,8 @@ export async function safeFetch(targetUrl: string, options: SafeFetchOptions = {
 
       const headers: Record<string, string> = {
         'User-Agent': userAgent,
-        'Accept': 'application/xml, text/xml, application/atom+xml, text/html, */*',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9,vi;q=0.8',
       };
 
       const reqOptions: http.RequestOptions & https.RequestOptions = {
@@ -145,8 +146,31 @@ export async function safeFetch(targetUrl: string, options: SafeFetchOptions = {
 
       let totalTimeoutTimer: NodeJS.Timeout | undefined;
 
-      const req = requestModule.request(reqOptions as any, (res) => {
+      const req = requestModule.request(reqOptions as any, async (res) => {
         const statusCode = res.statusCode || 200;
+
+        if (statusCode === 403) {
+          try {
+            const fallbackRes = await fetch(currentUrl, {
+              headers: {
+                'User-Agent': userAgent,
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+              },
+            });
+            if (fallbackRes.ok) {
+              const text = await fallbackRes.text();
+              if (totalTimeoutTimer) clearTimeout(totalTimeoutTimer);
+              return resolve({
+                status: fallbackRes.status,
+                headers: Object.fromEntries(fallbackRes.headers.entries()),
+                body: text,
+              });
+            }
+          } catch {
+            // fallback failed, continue with standard response handling
+          }
+        }
 
         // Handle Redirects
         if ([301, 302, 303, 307, 308].includes(statusCode)) {
