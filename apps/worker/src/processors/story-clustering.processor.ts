@@ -260,8 +260,36 @@ export class StoryClusteringProcessor extends WorkerHost {
       }
     }
 
-    // Formula calculation
-    const baseScore = sourceCount * 2.0;
+    // 1. Google Trends search traffic signal
+    let maxApproxTraffic = 0;
+    for (const art of articles) {
+      const meta = art.metadataJson as any;
+      if (meta?.approxTraffic && typeof meta.approxTraffic === 'number') {
+        if (meta.approxTraffic > maxApproxTraffic) maxApproxTraffic = meta.approxTraffic;
+      }
+    }
+
+    let trafficBoost = 0;
+    if (maxApproxTraffic >= 500000) trafficBoost = 8.0;
+    else if (maxApproxTraffic >= 100000) trafficBoost = 5.0;
+    else if (maxApproxTraffic >= 50000) trafficBoost = 3.0;
+    else if (maxApproxTraffic >= 10000) trafficBoost = 1.5;
+    else if (maxApproxTraffic > 0) trafficBoost = 0.5;
+
+    // 2. AI Viral Score signal
+    let maxViralScore = 0;
+    for (const art of articles) {
+      if ((art as any).viralScore && (art as any).viralScore > maxViralScore) {
+        maxViralScore = (art as any).viralScore;
+      }
+    }
+    let viralBoost = 0;
+    if (maxViralScore >= 80) viralBoost = 5.0;
+    else if (maxViralScore >= 60) viralBoost = 2.5;
+
+    // 3. Base score calculation (bỏ phụ thuộc cứng vào nhiều nguồn, hỗ trợ tin 1-nguồn nhưng traffic cao)
+    const baseSourceScore = Math.max(1.5, sourceCount * 1.5);
+    const baseScore = baseSourceScore + trafficBoost + viralBoost;
 
     // Time decay: exponential decay over the age of the trend (time since last article updated vs now)
     const hoursAge = Math.max(0.1, (Date.now() - last.getTime()) / (1000 * 60 * 60));
@@ -276,7 +304,7 @@ export class StoryClusteringProcessor extends WorkerHost {
 
     const explanation = blockedHits > 0 
       ? `Điểm xu hướng bằng 0 do chứa ${blockedHits} từ khóa bị chặn.`
-      : `Điểm cơ bản: ${baseScore.toFixed(1)} (${sourceCount} nguồn), Hệ số tin cậy nguồn: ${avgTrustMultiplier.toFixed(1)}, Hệ số thời gian: ${recencyFactor.toFixed(2)} (${hoursAge.toFixed(1)}h tuổi), Thưởng từ khóa: x${preferredMultiplier.toFixed(2)}.`;
+      : `Điểm cơ bản: ${baseScore.toFixed(1)} (${sourceCount} nguồn, Traffic: ${maxApproxTraffic > 0 ? maxApproxTraffic.toLocaleString() : 'N/A'}, Viral: ${maxViralScore > 0 ? maxViralScore + '/100' : 'N/A'}), Hệ số tin cậy: ${avgTrustMultiplier.toFixed(1)}, Hệ số thời gian: ${recencyFactor.toFixed(2)} (${hoursAge.toFixed(1)}h tuổi), Thưởng từ khóa: x${preferredMultiplier.toFixed(2)}.`;
 
     await this.db.storyCluster.update({
       where: { id: clusterId },
@@ -291,15 +319,20 @@ export class StoryClusteringProcessor extends WorkerHost {
 
     this.logger.log(`Updated Trend Score for Cluster ${clusterId} to ${trendScore.toFixed(2)}. Explanation: ${explanation}`, 'StoryClusteringProcessor');
 
-    // Auto-enqueue AI editorial draft generation if trend score is high (e.g. >= 5.0)
-    // and there is no draft already created for this cluster
-    if (trendScore >= 5.0 && blockedHits === 0) {
+    // Auto-enqueue AI editorial draft generation if trend score is high or viral score meets policy threshold
+    const policy = await this.db.editorialPolicy.findUnique({ where: { workspaceId } });
+    const threshold = (policy as any)?.autoDraftTrendThreshold ?? 5.0;
+    const minViral = (policy as any)?.autoDraftMinViralScore ?? 80;
+
+    const isQualifying = (trendScore >= threshold || (maxViralScore > 0 && maxViralScore >= minViral));
+
+    if (isQualifying && blockedHits === 0) {
       const existingDraft = await this.db.draft.findFirst({
         where: { clusterId, archivedAt: null },
       });
 
       if (!existingDraft) {
-        this.logger.log(`Trend Score ${trendScore.toFixed(2)} >= 5.0. Auto-triggering Draft Generation for cluster ${clusterId}`, 'StoryClusteringProcessor');
+        this.logger.log(`Cluster ${clusterId} đạt chuẩn (Trend Score: ${trendScore.toFixed(2)} >= ${threshold} hoặc Viral: ${maxViralScore}/100 >= ${minViral}). Auto-triggering Draft Generation!`, 'StoryClusteringProcessor');
         
         // Find default brand profile
         const brandProfile = await this.db.brandProfile.findFirst({

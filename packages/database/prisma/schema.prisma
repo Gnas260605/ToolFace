@@ -476,6 +476,8 @@ model EditorialPolicy {
   autoPublishImmediate          Boolean  @default(false) @map("auto_publish_immediate")
   autoPublishMinSafetyScore     Float    @default(0.8) @map("auto_publish_min_safety_score")
   autoPublishPostType           String   @default("LINK") @map("auto_publish_post_type")
+  autoDraftTrendThreshold       Float    @default(5.0) @map("auto_draft_trend_threshold")
+  autoDraftMinViralScore        Int      @default(80) @map("auto_draft_min_viral_score")
 
   createdAt                DateTime @default(now()) @map("created_at")
   updatedAt                DateTime @updatedAt @map("updated_at")

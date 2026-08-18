@@ -122,6 +122,7 @@ describe('Ingestion Adapters Tests', () => {
       expect(articles[0].rawMetadata).toEqual({
         searchTerm: 'Football Trend',
         traffic: '5,000+',
+        approxTraffic: 5000,
         sourceName: 'News Source',
       });
     });
