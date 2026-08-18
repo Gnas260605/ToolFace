@@ -2,6 +2,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useRouter } from 'next/navigation';
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
@@ -15,6 +16,33 @@ async function parseResponseError(res: Response, fallbackMsg: string): Promise<s
   } catch (_e) {
     return fallbackMsg;
   }
+}
+
+function decodeHtml(text: string | null | undefined): string {
+  if (!text) return '';
+  return text
+    .replace(/&aacute;/gi, 'á')
+    .replace(/&agrave;/gi, 'à')
+    .replace(/&atilde;/gi, 'ã')
+    .replace(/&acirc;/gi, 'â')
+    .replace(/&eacute;/gi, 'é')
+    .replace(/&egrave;/gi, 'è')
+    .replace(/&ecirc;/gi, 'ê')
+    .replace(/&iacute;/gi, 'í')
+    .replace(/&igrave;/gi, 'ì')
+    .replace(/&oacute;/gi, 'ó')
+    .replace(/&ograve;/gi, 'ò')
+    .replace(/&otilde;/gi, 'õ')
+    .replace(/&ocirc;/gi, 'ô')
+    .replace(/&uacute;/gi, 'ú')
+    .replace(/&ugrave;/gi, 'ù')
+    .replace(/&yacute;/gi, 'ý')
+    .replace(/&quot;/gi, '"')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec))
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
 }
 
 interface ArticleSource {
@@ -338,12 +366,12 @@ export default function WorkspaceArticlesPage() {
                         onClick={() => handleOpenDetail(article.id)}
                         className="text-base font-bold text-zinc-100 hover:text-accent-400 cursor-pointer transition line-clamp-2 leading-snug"
                       >
-                        {article.title}
+                        {decodeHtml(article.title)}
                       </h3>
 
                       {/* Excerpt */}
                       <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed font-light">
-                        {article.contentExcerpt || article.summary || 'Không có bản tóm tắt nội dung...'}
+                        {decodeHtml(article.contentExcerpt || article.summary || 'Không có bản tóm tắt nội dung...')}
                       </p>
 
                       {/* Footnotes */}
@@ -417,9 +445,14 @@ export default function WorkspaceArticlesPage() {
       </div>
 
       {/* High-contrast Article Details Modal */}
-      {selectedArticleId && (
-        <div className="fixed inset-0 bg-black/75 z-50 flex items-center justify-center p-4">
-          <div className="bg-surface-raised border border-zinc-700/80 rounded-2xl w-full max-w-3xl max-h-[85vh] overflow-hidden shadow-2xl flex flex-col">
+      {selectedArticleId && typeof document !== 'undefined' && createPortal(
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setSelectedArticleId(null);
+          }}
+          className="fixed inset-0 bg-black/80 backdrop-blur-md z-[99999] flex items-center justify-center p-4 animate-fade-in"
+        >
+          <div className="bg-surface-raised border border-zinc-700/80 rounded-2xl w-full max-w-3xl max-h-[85vh] overflow-hidden shadow-2xl flex flex-col z-[100000]">
             {/* Modal Header */}
             <div className="p-4 px-6 border-b border-zinc-800 flex items-center justify-between bg-surface-sunken">
               <span className="text-xs font-bold text-accent-400 uppercase tracking-wider">Chi tiết bài viết gốc</span>
@@ -441,7 +474,7 @@ export default function WorkspaceArticlesPage() {
               ) : articleDetail ? (
                 <>
                   <div className="space-y-2">
-                    <h2 className="text-lg font-bold text-zinc-100 leading-snug">{articleDetail.title}</h2>
+                    <h2 className="text-lg font-bold text-zinc-100 leading-snug">{decodeHtml(articleDetail.title)}</h2>
                     <div className="flex flex-wrap items-center gap-2 text-xs">
                       <span className="px-2 py-0.5 rounded font-bold bg-accent-500/10 text-accent-400 border border-accent-500/20">
                         Nguồn: {articleDetail.source.attributionName} ({articleDetail.source.domain})
@@ -465,7 +498,7 @@ export default function WorkspaceArticlesPage() {
                   <div className="p-4 rounded-xl bg-zinc-900/80 border border-zinc-800 space-y-2">
                     <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Nội dung trích xuất sạch</span>
                     <p className="text-xs text-zinc-300 leading-relaxed font-light whitespace-pre-wrap">
-                      {articleDetail.contentExcerpt || articleDetail.summary || 'Không thể bóc tách nội dung chi tiết cho bài viết này.'}
+                      {decodeHtml(articleDetail.contentExcerpt || articleDetail.summary || 'Không thể bóc tách nội dung chi tiết cho bài viết này.')}
                     </p>
                   </div>
 
@@ -496,7 +529,8 @@ export default function WorkspaceArticlesPage() {
               )}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

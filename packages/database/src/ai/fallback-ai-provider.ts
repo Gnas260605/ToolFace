@@ -92,7 +92,7 @@ export class FallbackAiProvider implements AiProvider {
         const result = await provider.extractFacts(input, context);
         return {
           ...result,
-          provider: `${type} (fallback-resolved)`,
+          provider: type,
         };
       } catch (err) {
         console.error(`[FallbackAiProvider] extractFacts error in ${type}:`, err);
@@ -111,7 +111,7 @@ export class FallbackAiProvider implements AiProvider {
         const result = await provider.generateDraft(input, context);
         return {
           ...result,
-          provider: `${type} (fallback-resolved)`,
+          provider: type,
         };
       } catch (err) {
         console.error(`[FallbackAiProvider] generateDraft error in ${type}:`, err);
@@ -130,7 +130,7 @@ export class FallbackAiProvider implements AiProvider {
         const result = await provider.verifyDraft(input, context);
         return {
           ...result,
-          provider: `${type} (fallback-resolved)`,
+          provider: type,
         };
       } catch (err) {
         console.error(`[FallbackAiProvider] verifyDraft error in ${type}:`, err);

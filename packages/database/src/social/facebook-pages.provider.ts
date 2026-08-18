@@ -73,6 +73,22 @@ export interface PublishPhotoPostInput {
   photoUrl: string;
 }
 
+export interface PublishVideoPostInput {
+  pageAccessToken: string;
+  pageId: string;
+  message: string;
+  videoUrl: string;
+  title?: string;
+}
+
+export interface PublishReelPostInput {
+  pageAccessToken: string;
+  pageId: string;
+  description: string;
+  videoUrl: string;
+  title?: string;
+}
+
 export interface FacebookPagesProvider {
   buildAuthorizationUrl(input: BuildAuthorizationUrlInput): Promise<string>;
   exchangeAuthorizationCode(input: ExchangeAuthorizationCodeInput): Promise<FacebookUserAuthorization>;
@@ -81,11 +97,23 @@ export interface FacebookPagesProvider {
   publishTextPost(input: PublishTextPostInput): Promise<FacebookPublishResult>;
   publishLinkPost(input: PublishLinkPostInput): Promise<FacebookPublishResult>;
   publishPhotoPost?(input: PublishPhotoPostInput): Promise<FacebookPublishResult>;
+  publishVideoPost?(input: PublishVideoPostInput): Promise<FacebookPublishResult>;
+  publishReelPost?(input: PublishReelPostInput): Promise<FacebookPublishResult>;
+  publishComment?(input: { pageAccessToken: string; postId: string; message: string }): Promise<FacebookPublishResult>;
 }
 
 export class MockFacebookPagesProvider implements FacebookPagesProvider {
   private simulateDelay(): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, 500));
+  }
+
+  async publishComment(_input: { pageAccessToken: string; postId: string; message: string }): Promise<FacebookPublishResult> {
+    await this.simulateDelay();
+    return {
+      success: true,
+      facebookPostId: `mock_comment_${Date.now()}`,
+      sanitizedResponseJson: { id: `mock_comment_${Date.now()}` },
+    };
   }
 
   async buildAuthorizationUrl(input: BuildAuthorizationUrlInput): Promise<string> {
@@ -166,9 +194,34 @@ export class MockFacebookPagesProvider implements FacebookPagesProvider {
     return this.simulatePublish(input.pageAccessToken);
   }
   
-  async publishPhotoPost(input: PublishPhotoPostInput): Promise<FacebookPublishResult> {
-      await this.simulateDelay();
-      return this.simulatePublish(input.pageAccessToken);
+  async publishPhotoPost(_input: PublishPhotoPostInput): Promise<FacebookPublishResult> {
+    await this.simulateDelay();
+    return {
+      success: true,
+      facebookPostId: `mock_post_photo_${Date.now()}`,
+      facebookPermalink: `https://facebook.com/mock_post_photo_${Date.now()}`,
+      sanitizedResponseJson: { id: `mock_post_photo_${Date.now()}`, post_id: `mock_post_photo_${Date.now()}` },
+    };
+  }
+
+  async publishVideoPost(_input: PublishVideoPostInput): Promise<FacebookPublishResult> {
+    await this.simulateDelay();
+    return {
+      success: true,
+      facebookPostId: `mock_post_video_${Date.now()}`,
+      facebookPermalink: `https://facebook.com/mock_post_video_${Date.now()}`,
+      sanitizedResponseJson: { id: `mock_post_video_${Date.now()}`, post_id: `mock_post_video_${Date.now()}` },
+    };
+  }
+
+  async publishReelPost(_input: PublishReelPostInput): Promise<FacebookPublishResult> {
+    await this.simulateDelay();
+    return {
+      success: true,
+      facebookPostId: `mock_reel_${Date.now()}`,
+      facebookPermalink: `https://facebook.com/reel/mock_reel_${Date.now()}`,
+      sanitizedResponseJson: { id: `mock_reel_${Date.now()}`, post_id: `mock_reel_${Date.now()}` },
+    };
   }
 
   private simulatePublish(token: string): FacebookPublishResult {
@@ -363,6 +416,37 @@ export class GraphApiFacebookPagesProvider implements FacebookPagesProvider {
     return this.executePublish(url, {
       caption: input.message,
       url: input.photoUrl,
+      access_token: input.pageAccessToken,
+    });
+  }
+
+  async publishVideoPost(input: PublishVideoPostInput): Promise<FacebookPublishResult> {
+    const url = `https://graph.facebook.com/${this.apiVersion}/${input.pageId}/videos`;
+    return this.executePublish(url, {
+      description: input.message,
+      title: input.title,
+      file_url: input.videoUrl,
+      access_token: input.pageAccessToken,
+    });
+  }
+
+  async publishReelPost(input: PublishReelPostInput): Promise<FacebookPublishResult> {
+    // Facebook Reels API endpoint
+    const url = `https://graph.facebook.com/${this.apiVersion}/${input.pageId}/video_reels`;
+    return this.executePublish(url, {
+      description: input.description,
+      title: input.title,
+      video_url: input.videoUrl,
+      upload_phase: 'finish',
+      video_state: 'PUBLISHED',
+      access_token: input.pageAccessToken,
+    });
+  }
+
+  async publishComment(input: { pageAccessToken: string; postId: string; message: string }): Promise<FacebookPublishResult> {
+    const url = `https://graph.facebook.com/${this.apiVersion}/${input.postId}/comments`;
+    return this.executePublish(url, {
+      message: input.message,
       access_token: input.pageAccessToken,
     });
   }

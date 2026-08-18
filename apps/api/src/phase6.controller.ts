@@ -23,7 +23,7 @@ import {
   Max,
   Min,
 } from 'class-validator';
-import { MockAuthGuard, PermissionsGuard, RequirePermissions } from './common/auth.guard';
+import { JwtAuthGuard, PermissionsGuard, RequirePermissions } from './common/auth.guard';
 import { SaasService } from './common/services/saas.service';
 import { DatabaseService } from './common/database.service';
 import { settingsRegistry as settingsRegistryDefinitions } from '@newsflow/database';
@@ -231,7 +231,7 @@ class SuspendDto {
 }
 
 @Controller('workspaces/:workspaceId')
-@UseGuards(MockAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class WorkspaceBillingController {
   constructor(
     private readonly saasService: SaasService,
@@ -354,7 +354,7 @@ export class BillingWebhookController {
 }
 
 @Controller('admin')
-@UseGuards(MockAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class AdminPhase6Controller {
   constructor(
     private readonly saasService: SaasService,

@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Request } from 'express';
+import { SessionTokenService } from '@newsflow/database';
 
 export const PERMISSIONS_KEY = 'permissions';
 export const RequirePermissions = (...permissions: string[]) => SetMetadata(PERMISSIONS_KEY, permissions);
@@ -25,8 +26,50 @@ export interface RequestWithUser extends Request {
 }
 
 @Injectable()
+export class JwtAuthGuard implements CanActivate {
+  constructor(private sessionTokenService: SessionTokenService) {}
+
+  canActivate(context: ExecutionContext): boolean {
+    const request = context.switchToHttp().getRequest<RequestWithUser>();
+    const authHeader = request.headers['authorization'] as string;
+    
+    // Fallback for local development if no JWT is provided
+    if ((!authHeader || !authHeader.startsWith('Bearer ')) && process.env.NODE_ENV !== 'production') {
+      const workspaceId = request.params.workspaceId || (request.headers['x-workspace-id'] as string) || 'system';
+      request.user = {
+        id: (request.headers['x-user-id'] as string) || 'mock-default-user-id',
+        role: ((request.headers['x-user-role'] as string) || 'OWNER').toUpperCase(),
+        workspaceId,
+        systemRole: ((request.headers['x-system-role'] as string) || '').toUpperCase(),
+      };
+      return true;
+    }
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      throw new UnauthorizedException('Missing or invalid Authorization header');
+    }
+    const token = authHeader.split(' ')[1];
+    const payload = this.sessionTokenService.verifyAccessToken(token);
+    if (!payload) {
+      throw new UnauthorizedException('Invalid or expired token');
+    }
+    request.user = {
+      id: payload.userId,
+      role: payload.role,
+      workspaceId: payload.workspaceId,
+      systemRole: payload.systemRole,
+    };
+    return true;
+  }
+}
+
+@Injectable()
 export class MockAuthGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
+    if (process.env.NODE_ENV === 'production' || process.env.ALLOW_MOCK_AUTH !== 'true') {
+      throw new ForbiddenException('MockAuthGuard is disabled outside development');
+    }
+
     const request = context.switchToHttp().getRequest<RequestWithUser>();
     
     // Extract workspace ID from route parameters
@@ -67,6 +110,11 @@ export class PermissionsGuard implements CanActivate {
 
     if (!user) {
       throw new UnauthorizedException('Authentication required');
+    }
+
+    const routeWorkspaceId = request.params.workspaceId;
+    if (routeWorkspaceId && user.workspaceId !== routeWorkspaceId && user.systemRole !== SYSTEM_ADMIN_ROLE) {
+      throw new ForbiddenException('User does not belong to this workspace');
     }
 
     // Role Permissions mapping

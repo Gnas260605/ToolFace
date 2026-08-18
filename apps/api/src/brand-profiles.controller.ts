@@ -20,7 +20,7 @@ import {
   IsIn,
 } from 'class-validator';
 import { DatabaseService } from './common/database.service';
-import { MockAuthGuard, PermissionsGuard, RequirePermissions } from './common/auth.guard';
+import { JwtAuthGuard, PermissionsGuard, RequirePermissions } from './common/auth.guard';
 import { SaasService } from './common/services/saas.service';
 
 // Local enum constants — mirror Prisma schema values
@@ -130,7 +130,7 @@ class UpdateBrandProfileDto {
 }
 
 @Controller('workspaces/:workspaceId/brand-profiles')
-@UseGuards(MockAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class BrandProfilesController {
   constructor(
     private readonly db: DatabaseService,

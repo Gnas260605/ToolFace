@@ -4,3 +4,4 @@ export * from './google-trends.adapter';
 export * from './reddit.adapter';
 export * from './youtube.adapter';
 export * from './scraper.adapter';
+export * from './china-video.adapter';

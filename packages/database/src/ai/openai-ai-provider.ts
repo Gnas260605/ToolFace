@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import OpenAI from 'openai';
+import { PromptRegistry } from './prompt-registry';
 import {
   AiProvider,
   AiRequestContext,
@@ -118,11 +119,23 @@ export class OpenAiProvider implements AiProvider {
     context: AiRequestContext
   ): Promise<AiResult<GeneratedDraft>> {
     const start = Date.now();
-    const systemInstruction = `You are an editorial assistant writing a Facebook post draft.
-Use ONLY the supplied fact sheet. Respect tone, audience and writing rules from brand settings.
-Forbidden phrases MUST NOT appear in the draft. Return valid structured JSON matching the draft schema.`;
+    const systemInstruction = PromptRegistry.v1.DRAFT_GENERATION.system;
 
-    const prompt = `Fact Sheet:\n${JSON.stringify(input.factSheet)}\n\nBrand Rules:\n${JSON.stringify(input.brandRules)}\nContent Type: ${input.contentType}\nLanguage: ${input.language}`;
+    const prompt = `Dựa trên dữ liệu tin tức dưới đây, hãy sáng tạo một bài viết Facebook hoàn chỉnh, chuẩn phong cách viral triệu view:
+Dữ liệu tin tức bài viết:
+[START_FACTS]
+${JSON.stringify(input.factSheet, null, 2)}
+[END_FACTS]
+
+Cấu hình phong cách & quy tắc biên tập:
+${JSON.stringify(input.brandRules, null, 2)}
+
+Định dạng yêu cầu: ${input.contentType}
+Ngôn ngữ: ${input.language || 'vi'}
+
+QUY TẮC BẮT BUỘC:
+1. Bạn phải viết lại bài viết DỰA ĐÚNG TRÊN CHỦ ĐỀ VÀ DỮ LIỆU TIN TỨC trong [START_FACTS]. Tuyệt đối KHÔNG được tự ý chuyển chủ đề sang sự việc khác (như bóng đá hay tin giả).
+2. Hãy xuất ra JSON hợp lệ theo đúng cấu trúc GeneratedDraft schema.`;
 
     const modelName = process.env.AI_DRAFT_GENERATION_MODEL || 'gpt-4o-mini';
     const { data, inputTokens, outputTokens } = await this.callOpenAi<GeneratedDraft>(

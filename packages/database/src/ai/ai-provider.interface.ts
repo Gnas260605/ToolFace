@@ -14,9 +14,9 @@ export const SourceClaimSchema = z.object({
 });
 
 export const EntitySchema = z.object({
-  type: z.enum(['PERSON', 'TEAM', 'ORGANIZATION', 'LOCATION', 'COMPETITION', 'EVENT']),
+  type: z.enum(['PERSON', 'TEAM', 'ORGANIZATION', 'LOCATION', 'COMPETITION', 'EVENT', 'GROUP', 'OTHER', 'CONCEPT', 'PRODUCT']).catch('ORGANIZATION'),
   canonicalName: z.string(),
-  aliases: z.array(z.string()),
+  aliases: z.array(z.string()).default([]),
 });
 
 export const DateFactSchema = z.object({

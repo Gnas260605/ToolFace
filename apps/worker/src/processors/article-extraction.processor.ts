@@ -55,24 +55,39 @@ export class ArticleExtractionProcessor extends WorkerHost {
         contentType: 'text/html',
       });
 
-      // 3. Extract readable text using Readability
+      // 3. Extract readable text using Readability with paragraph fallback
       const reader = new Readability(dom.window.document);
       const parsed = reader.parse();
 
-      if (!parsed) {
-        throw new Error('ARTICLE_EXTRACTION_FAILED');
+      let cleanExcerpt = '';
+      let textContent = '';
+
+      if (parsed && parsed.textContent) {
+        textContent = parsed.textContent;
+        cleanExcerpt = sanitizeHtml(parsed.excerpt || parsed.textContent || '', {
+          allowedTags: [],
+          allowedAttributes: {},
+        })
+          .trim()
+          .slice(0, 3000);
+      } else {
+        const doc = dom.window.document;
+        const paragraphs = Array.from(doc.querySelectorAll('article p, main p, .content p, .article-content p, p'))
+          .map((p) => p.textContent?.trim())
+          .filter((t) => t && t.length > 20)
+          .slice(0, 12)
+          .join('\n\n');
+
+        textContent = paragraphs || doc.querySelector('meta[name="description"]')?.getAttribute('content') || article.summary || '';
+        cleanExcerpt = textContent.slice(0, 3000);
       }
 
-      // 4. Sanitize text and excerpt (no HTML tags allowed in excerpt)
-      const cleanExcerpt = sanitizeHtml(parsed.excerpt || parsed.textContent || '', {
-        allowedTags: [],
-        allowedAttributes: {},
-      })
-        .trim()
-        .slice(0, 2000); // limit excerpt to 2000 characters
+      if (!cleanExcerpt) {
+        cleanExcerpt = article.summary || article.title;
+      }
 
       // 5. Calculate new content hash based on extracted text
-      const contentHash = calculateHash(parsed.textContent || '');
+      const contentHash = calculateHash(textContent || cleanExcerpt);
 
       // Check Layer 2: Content Hash uniqueness in workspace
       const duplicateContent = await this.db.article.findFirst({
@@ -106,7 +121,7 @@ export class ArticleExtractionProcessor extends WorkerHost {
           contentHash,
           extractionStatus: ArticleExtractionStatus.SUCCESS,
           riskLevel,
-          author: parsed.byline || article.author,
+          author: parsed?.byline || article.author,
           imageUrl: imageUrl || undefined,
         },
       });

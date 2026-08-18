@@ -9,7 +9,7 @@ dotenv.config({ path: path.resolve(process.cwd(), '../../../.env') });
 
 
 export const serverSchema = z.object({
-  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  NODE_ENV: z.enum(['development', 'production', 'test']),
   APP_NAME: z.string().default('NewsFlow AI'),
   APP_VERSION: z.string().default('0.1.0'),
   WEB_PORT: z.coerce.number().default(3000),
@@ -48,10 +48,15 @@ export const serverSchema = z.object({
   SYSTEM_ANNOUNCEMENTS_ENABLED: z.enum(['true', 'false']).default('true'),
   WHITE_LABEL_ENABLED: z.enum(['true', 'false']).default('true'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+  JWT_ACCESS_SECRET: z.string().min(32),
+  JWT_ACCESS_TTL_SECONDS: z.coerce.number().int().positive().default(900),
+  JWT_REFRESH_SECRET: z.string().min(32),
+  JWT_REFRESH_TTL_SECONDS: z.coerce.number().int().positive().default(2592000),
+  FB_ENV_FALLBACK_WORKSPACE_ID: z.string().optional(),
 });
 
 export const clientSchema = z.object({
-  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  NODE_ENV: z.enum(['development', 'production', 'test']),
   APP_NAME: z.string().default('NewsFlow AI'),
   APP_VERSION: z.string().default('0.1.0'),
   WEB_URL: z.string().url(),

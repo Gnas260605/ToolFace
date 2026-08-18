@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@newsflow/config": "workspace:*",
     "@mozilla/readability": "^0.5.0",
     "@prisma/client": "^5.22.0",
     "date-fns": "^4.4.0",
@@ -19,6 +20,7 @@
     "fast-xml-parser": "^4.4.0",
     "ipaddr.js": "^2.2.0",
     "jsdom": "^24.1.0",
+    "jsonwebtoken": "^9.0.3",
     "normalize-url": "^6.1.0",
     "openai": "^7.4.0",
     "prisma": "^5.22.0",
@@ -28,6 +30,7 @@
   },
   "devDependencies": {
     "@types/jsdom": "^21.1.7",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20.14.9",
     "@types/sanitize-html": "^2.11.0",
     "typescript": "^5.5.3"

@@ -2,7 +2,8 @@
 import { Controller, Get, Post, Delete, Param, Query, Body, Headers, UseGuards, BadRequestException, Res, ConflictException, Req } from '@nestjs/common';
 import { Response } from 'express';
 import { DatabaseService } from './common/database.service';
-import { MockAuthGuard, PermissionsGuard, RequirePermissions } from './common/auth.guard';
+import { RedisService } from './common/redis.service';
+import { JwtAuthGuard, PermissionsGuard, RequirePermissions } from './common/auth.guard';
 import { SaasService } from './common/services/saas.service';
 import { SecretEncryptionService, MockFacebookPagesProvider, FacebookPagesProvider, GraphApiFacebookPagesProvider } from '@newsflow/database';
 import { randomBytes, createHash } from 'crypto';
@@ -11,7 +12,10 @@ import { randomBytes, createHash } from 'crypto';
 export class FacebookOauthController {
   private facebookProvider: FacebookPagesProvider;
 
-  constructor(private readonly db: DatabaseService) {
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly redis: RedisService,
+  ) {
     this.facebookProvider = process.env.META_PROVIDER === 'mock'
       ? new MockFacebookPagesProvider()
       : new GraphApiFacebookPagesProvider();
@@ -22,7 +26,7 @@ export class FacebookOauthController {
 
 
   @Get('connect')
-  @UseGuards(MockAuthGuard, PermissionsGuard)
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
   @RequirePermissions('facebook_connections.manage')
   async startOauth(
     @Query('workspaceId') workspaceId: string,
@@ -102,12 +106,12 @@ export class FacebookOauthController {
         redirectUri: oauthState.redirectUri
       });
 
-      // In production: store user token in Redis keyed by a short-lived session ID,
-      // redirect with ?session_id=... — never expose the token in the URL.
-      // For this Phase 4 mock, we pass a temp_token to enable page selection.
+      const sessionId = randomBytes(32).toString('hex');
+      await this.redis.set(`fb:temp_token:${sessionId}`, authData.accessToken, 600);
+
       const webUrl = process.env.WEB_URL || 'http://localhost:3000';
       return res.redirect(
-        `${webUrl}/app/${oauthState.workspaceId}/settings/facebook-pages?connected=true&temp_token=${authData.accessToken}`
+        `${webUrl}/app/${oauthState.workspaceId}/settings/facebook-pages?connected=true&session_id=${sessionId}`
       );
     } catch (_e) {
       return res.status(400).send('FACEBOOK_OAUTH_CALLBACK_FAILED');
@@ -116,13 +120,14 @@ export class FacebookOauthController {
 }
 
 @Controller('workspaces/:workspaceId/facebook')
-@UseGuards(MockAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class FacebookPagesController {
   private facebookProvider: FacebookPagesProvider;
   private encryptionService: SecretEncryptionService;
 
   constructor(
     private readonly db: DatabaseService,
+    private readonly redis: RedisService,
     private readonly saasService: SaasService,
   ) {
     this.facebookProvider = process.env.META_PROVIDER === 'mock'
@@ -143,9 +148,17 @@ export class FacebookPagesController {
   @RequirePermissions('facebook_connections.manage')
   async listAvailablePages(
     @Param('workspaceId') _workspaceId: string,
-    @Query('temp_token') tempToken: string
+    @Query('session_id') sessionId: string
   ) {
-    if (!tempToken) throw new BadRequestException('temp_token is required');
+    if (!sessionId) throw new BadRequestException('session_id is required');
+    
+    const tempToken = await this.redis.get(`fb:temp_token:${sessionId}`);
+    if (!tempToken) {
+      throw new BadRequestException('Session expired or invalid, please reconnect Facebook');
+    }
+    
+    await this.redis.del(`fb:temp_token:${sessionId}`);
+    
     const pages = await this.facebookProvider.listManageablePages({ userAccessToken: tempToken });
     return { pages };
   }
@@ -155,9 +168,10 @@ export class FacebookPagesController {
   async connectPage(
     @Param('workspaceId') workspaceId: string,
     @Body() body: { pageId: string; pageName: string; category: string; grantedTasks: string[]; pageAccessToken: string },
-    @Headers('x-user-id') userId: string
+    @Req() req: any
   ) {
-    await this.saasService.assertActionAllowed(workspaceId, 'facebook.connect', userId || 'SYSTEM');
+    const userId = req.user?.id || 'SYSTEM';
+    await this.saasService.assertActionAllowed(workspaceId, 'facebook.connect', userId);
 
     // Check if already connected
     const existing = await this.p.facebookPageConnection.findUnique({
@@ -187,8 +201,8 @@ export class FacebookPagesController {
         tokenIv: encrypted.iv,
         tokenAuthTag: encrypted.authTag,
         tokenKeyVersion: encrypted.keyVersion,
-        tokenFingerprint: 'fingerprint_placeholder',
-        connectedByUserId: userId || 'SYSTEM',
+        tokenFingerprint: createHash('sha256').update(tokenToEncrypt).digest('hex').slice(0, 16),
+        connectedByUserId: userId,
         lastValidatedAt: new Date(),
         lastValidationStatus: 'VALID'
       }
@@ -220,7 +234,7 @@ export class FacebookPagesController {
       requiresReauthorization: page.status === 'NEEDS_REAUTH'
     }));
 
-    if (process.env.FB_PAGE_ID) {
+    if (process.env.FB_PAGE_ID && workspaceId === process.env.FB_ENV_FALLBACK_WORKSPACE_ID) {
       const alreadyHas = result.some((r: any) => r.pageId === process.env.FB_PAGE_ID);
       if (!alreadyHas) {
         result.unshift({

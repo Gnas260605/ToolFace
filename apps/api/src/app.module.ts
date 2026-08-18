@@ -1,5 +1,7 @@
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 import { HealthController } from './health.controller';
 import { SystemController } from './system.controller';
 import { SourcesController } from './sources.controller';
@@ -17,10 +19,16 @@ import { RequestTrackerMiddleware } from './common/request-tracker.middleware';
 import { PublishingEligibilityService } from './common/services/publishing-eligibility.service';
 import { SaasService } from './common/services/saas.service';
 import { getServerEnv } from '@newsflow/config';
+import { SessionTokenService } from '@newsflow/database';
+import { AutoPilotController } from './autopilot.controller';
 import { AdminPhase6Controller, BillingWebhookController, WorkspaceBillingController } from './phase6.controller';
 
 @Module({
   imports: [
+    ThrottlerModule.forRoot([{
+      ttl: 60000,
+      limit: 100,
+    }]),
     BullModule.forRoot({
       connection: {
         host: new URL(getServerEnv().REDIS_URL).hostname,
@@ -53,11 +61,23 @@ import { AdminPhase6Controller, BillingWebhookController, WorkspaceBillingContro
     PublishController,
     SchedulingController,
     NotificationsController,
+    AutoPilotController,
     WorkspaceBillingController,
     BillingWebhookController,
     AdminPhase6Controller,
   ],
-  providers: [DatabaseService, RedisService, JsonLogger, PublishingEligibilityService, SaasService],
+  providers: [
+    DatabaseService,
+    RedisService,
+    JsonLogger,
+    PublishingEligibilityService,
+    SaasService,
+    SessionTokenService,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
   exports: [DatabaseService, RedisService, JsonLogger],
 })
 export class AppModule implements NestModule {

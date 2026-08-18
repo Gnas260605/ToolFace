@@ -22,6 +22,7 @@ import {
   RedditAdapter,
   YouTubeAdapter,
   ScraperAdapter,
+  ChinaVideoAdapter,
   SourceAdapter,
 } from '../adapters';
 
@@ -39,6 +40,10 @@ export class SourcePollProcessor extends WorkerHost {
 
   private getAdapter(source: Source): SourceAdapter {
     const url = source.feedUrl.toLowerCase();
+    const chinaAdapter = new ChinaVideoAdapter();
+    if (chinaAdapter.canHandle(source)) {
+      return chinaAdapter;
+    }
     if (url.includes('trends.google') || url.includes('google.com/trends')) {
       return new GoogleTrendsAdapter();
     }
@@ -88,47 +93,62 @@ export class SourcePollProcessor extends WorkerHost {
       const adapter = this.getAdapter(source);
       const entries = await adapter.fetch(source);
 
+      // 3. Prepare normalized data for batch deduplication
+      const normalizedEntries = entries.map(entry => {
+        const canonical = normalizeUrl(entry.canonicalUrl);
+        const normTitle = normalizeTitle(entry.title);
+        const cleanSummary = entry.summary ? sanitizeHtml(entry.summary, { allowedTags: [], allowedAttributes: {} }).trim() : '';
+        const cHash = calculateHash(cleanSummary);
+        const tHash = calculateHash(normTitle);
+        return { entry, canonical, normTitle, cleanSummary, cHash, tHash };
+      });
+
+      const canonicalUrls = normalizedEntries.map(e => e.canonical);
+      const contentHashes = normalizedEntries.map(e => e.cHash);
+      const titleHashes = normalizedEntries.map(e => e.tHash);
+
+      // Batch query existing articles
+      const existingArticles = await this.db.article.findMany({
+        where: {
+          workspaceId,
+          OR: [
+            { canonicalUrl: { in: canonicalUrls } },
+            { contentHash: { in: contentHashes } },
+            { normalizedTitleHash: { in: titleHashes } },
+          ],
+        },
+        select: {
+          canonicalUrl: true,
+          contentHash: true,
+          normalizedTitleHash: true,
+        }
+      });
+
+      const existingCanonicalUrls = new Set(existingArticles.map((a: any) => a.canonicalUrl));
+      const existingContentHashes = new Set(existingArticles.map((a: any) => a.contentHash));
+      const existingTitleHashes = new Set(existingArticles.map((a: any) => a.normalizedTitleHash));
+
       let articlesCreated = 0;
       let duplicatesSkipped = 0;
 
-      // 3. Loop & Normalize entries
-      for (const entry of entries) {
-        const canonical = normalizeUrl(entry.canonicalUrl);
+      // 4. Loop & Process entries
+      for (const item of normalizedEntries) {
+        const { entry, canonical, normTitle, cleanSummary, cHash, tHash } = item;
         const originalTitle = entry.title;
-        const normTitle = normalizeTitle(originalTitle);
 
-        // Check Layer 1: Canonical URL uniqueness per workspace
-        const existingArticle = await this.db.article.findFirst({
-          where: { workspaceId, canonicalUrl: canonical },
-        });
-
-        if (existingArticle) {
+        if (
+          existingCanonicalUrls.has(canonical) ||
+          existingContentHashes.has(cHash) ||
+          existingTitleHashes.has(tHash)
+        ) {
           duplicatesSkipped++;
           continue;
         }
 
-        // Check Layer 2: Content Hash or Title Hash uniqueness per workspace (Ingestion Dedup)
-        const cleanSummary = entry.summary
-          ? sanitizeHtml(entry.summary, { allowedTags: [], allowedAttributes: {} }).trim()
-          : '';
-
-        const cHash = calculateHash(cleanSummary);
-        const tHash = calculateHash(normTitle);
-
-        const existingDuplicate = await this.db.article.findFirst({
-          where: {
-            workspaceId,
-            OR: [
-              { contentHash: cHash },
-              { normalizedTitleHash: tHash },
-            ],
-          },
-        });
-
-        if (existingDuplicate) {
-          duplicatesSkipped++;
-          continue;
-        }
+        // Add to sets so we don't process duplicates within the same batch
+        existingCanonicalUrls.add(canonical);
+        existingContentHashes.add(cHash);
+        existingTitleHashes.add(tHash);
 
         let imageUrl = entry.imageUrl || null;
         if (!imageUrl && entry.summary) {
@@ -138,11 +158,11 @@ export class SourcePollProcessor extends WorkerHost {
           }
         }
 
-        // Check if allow page extraction
-        const shouldExtract = source.allowPageExtraction;
+        // Automatically extract page content if allowPageExtraction is true or default
+        const shouldExtract = source.allowPageExtraction !== false;
         const extractStatus = shouldExtract ? ArticleExtractionStatus.PENDING : ArticleExtractionStatus.NOT_REQUESTED;
 
-        // Insert Article
+        // Insert Article with immediate clean content excerpt
         const article = await this.db.article.create({
           data: {
             workspaceId,
@@ -151,6 +171,7 @@ export class SourcePollProcessor extends WorkerHost {
             originalUrl: entry.originalUrl,
             title: originalTitle,
             summary: cleanSummary || null,
+            contentExcerpt: cleanSummary || null,
             author: entry.author || null,
             publishedAt: entry.publishedAt || new Date(),
             language: source.language,

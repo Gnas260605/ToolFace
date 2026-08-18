@@ -20,3 +20,5 @@ export * from './social/facebook-pages.provider';
 export * from './scheduling/timezone.service';
 export * from './email/email-provider';
 export * from './saas/phase6';
+export * from './security/session-token.service';
+export * from './presets/reputable-sources';

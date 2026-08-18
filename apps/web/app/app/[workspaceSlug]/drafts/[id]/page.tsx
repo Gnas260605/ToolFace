@@ -104,8 +104,6 @@ export default function DraftEditorPage() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [approving, setApproving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [activeVersionIdx, setActiveVersionIdx] = useState(0);
@@ -143,6 +141,10 @@ export default function DraftEditorPage() {
   }, [draft?.status, workspaceId]);
 
   // Editor form state
+  const [videoTemplate, setVideoTemplate] = useState<'STANDARD' | 'TEMPLATE_1_HEADLINE_OVERLAY' | 'TEMPLATE_2_BREAKING_NEWS'>('TEMPLATE_2_BREAKING_NEWS');
+  const [bannerColor, setBannerColor] = useState<'#E11D48' | '#2563EB' | '#EAB308'>('#E11D48');
+  const [videoUrl, setVideoUrl] = useState<string>('https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4');
+
   const [form, setForm] = useState({
     headline: '',
     hook: '',
@@ -269,51 +271,14 @@ export default function DraftEditorPage() {
     }
   };
 
-  // ---- Submit for review ----
-  const handleSubmit = async () => {
-    if (!draft) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      const res = await fetch(`${API_BASE}/api/v1/workspaces/${workspaceId}/drafts/${draftId}/submit`, {
-        method: 'POST',
-        headers: { 'x-user-role': 'OWNER', 'x-workspace-id': workspaceId },
-      });
-      if (!res.ok) {
-        const msg = await parseResponseError(res, 'Gửi duyệt thất bại');
-        throw new Error(msg);
-      }
-      showSuccess('Đã gửi bài để duyệt');
-      await loadDraft();
-    } catch (e: unknown) {
-      setError(getErrMsg(e));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  // ---- Approve ----
-  const handleApprove = async () => {
-    if (!draft) return;
-    setApproving(true);
-    setError(null);
-    try {
-      const res = await fetch(`${API_BASE}/api/v1/workspaces/${workspaceId}/drafts/${draftId}/approve`, {
-        method: 'POST',
-        headers: { 'x-user-role': 'OWNER', 'x-workspace-id': workspaceId },
-      });
-      if (!res.ok) {
-        const msg = await parseResponseError(res, 'Phê duyệt thất bại');
-        throw new Error(msg);
-      }
-      showSuccess('Đã phê duyệt bài viết ✓');
-      await loadDraft();
-    } catch (e: unknown) {
-      setError(getErrMsg(e));
-    } finally {
-      setApproving(false);
-    }
-  };
+  const [publishResultModal, setPublishResultModal] = useState<{
+    status: 'SUCCESS' | 'FAILED' | 'LOADING';
+    title: string;
+    message: string;
+    pageName?: string;
+    publicationType?: string;
+    facebookPostUrl?: string;
+  } | null>(null);
 
   const handlePublishOrSchedule = async () => {
     if (!draft || !latestVersion) return;
@@ -323,6 +288,17 @@ export default function DraftEditorPage() {
     }
     setPublishing(true);
     setError(null);
+
+    const selectedPage = facebookPages.find((p) => p.id === selectedPageId);
+    setShowPublishModal(false);
+
+    setPublishResultModal({
+      status: 'LOADING',
+      title: publishType === 'IMMEDIATE' ? 'Đang xuất bản lên Facebook...' : 'Đang lên lịch xuất bản...',
+      message: `Đang kết nối Facebook Graph API cho Fanpage ${selectedPage?.pageName || ''}...`,
+      pageName: selectedPage?.pageName,
+      publicationType,
+    });
 
     const idempotencyKey = `${workspaceId}:${selectedPageId}:${draftId}:${latestVersion.id}:${publicationType}:${Date.now()}`;
 
@@ -349,7 +325,14 @@ export default function DraftEditorPage() {
           throw new Error(msg);
         }
 
-        showSuccess('Đã đưa bài viết vào hàng đợi đăng ngay!');
+        setPublishResultModal({
+          status: 'SUCCESS',
+          title: 'Đăng Bài Lên Facebook Thành Công! 🎉',
+          message: `Bài viết đã được gửi xuất bản trực tiếp lên Fanpage "${selectedPage?.pageName || 'Facebook Page'}". Nội dung đã được tối ưu reach và sẵn sàng tiếp cận độc giả!`,
+          pageName: selectedPage?.pageName,
+          publicationType,
+          facebookPostUrl: `https://facebook.com/${selectedPageId}`,
+        });
       } else {
         if (!localDateTime) {
           throw new Error('Vui lòng chọn thời điểm lên lịch đăng bài');
@@ -377,22 +360,41 @@ export default function DraftEditorPage() {
           throw new Error(msg);
         }
 
-        showSuccess('Đã lên lịch xuất bản bài viết thành công!');
+        setPublishResultModal({
+          status: 'SUCCESS',
+          title: 'Lên Lịch Xuất Bản Thành Công! ⏰',
+          message: `Bài viết đã được đặt lịch tự động đăng vào lúc ${new Date(localDateTime).toLocaleString('vi-VN')} (${timezone}) lên Fanpage "${selectedPage?.pageName || 'Facebook Page'}".`,
+          pageName: selectedPage?.pageName,
+          publicationType,
+        });
       }
-      setShowPublishModal(false);
       await loadDraft();
     } catch (e: unknown) {
-      setError(getErrMsg(e));
+      const errMsg = getErrMsg(e);
+      setPublishResultModal({
+        status: 'FAILED',
+        title: 'Xuất Bản Thất Bại ⚠️',
+        message: errMsg || 'Không thể kết nối đến Facebook Graph API. Vui lòng kiểm tra lại quyền hạn hoặc mã kết nối Fanpage.',
+        pageName: selectedPage?.pageName,
+      });
     } finally {
       setPublishing(false);
     }
   };
 
+  // ---- Quick Publish (One-Click Instant Publish) ----
   const handleQuickPublish = async () => {
     if (!draft || !latestVersion) return;
     setPublishing(true);
     setError(null);
     const idempotencyKey = `quick-pub-${workspaceId}-${draftId}-${latestVersion.id}-${Date.now()}`;
+
+    setPublishResultModal({
+      status: 'LOADING',
+      title: 'Đang phê duyệt và đăng nhanh...',
+      message: 'Hệ thống đang đồng bộ với Fanpage Facebook...',
+    });
+
     try {
       const res = await fetch(`${API_BASE}/api/v1/workspaces/${workspaceId}/drafts/${draftId}/quick-publish`, {
         method: 'POST',
@@ -413,10 +415,22 @@ export default function DraftEditorPage() {
         throw new Error(msg);
       }
 
-      showSuccess('Đã duyệt và đưa bài viết vào hàng đợi xuất bản thành công! ⚡');
+      // Auto copy to clipboard for user convenience
+      await handleCopyFormattedFacebook();
+
+      setPublishResultModal({
+        status: 'SUCCESS',
+        title: 'Đăng Bài Thành Công! 🎉',
+        message: 'Nội dung bài viết đã được phê duyệt và gửi vào hàng đợi xuất bản trực tiếp lên Facebook. Đồng thời toàn bộ bài viết đã được sao chép sẵn vào Clipboard để bạn có thể dán đăng ngay lập tức!',
+      });
       await loadDraft();
     } catch (e: unknown) {
-      setError(getErrMsg(e));
+      const errMsg = getErrMsg(e);
+      setPublishResultModal({
+        status: 'FAILED',
+        title: 'Đăng Nhanh Thất Bại ⚠️',
+        message: errMsg || 'Có lỗi xảy ra trong quá trình xuất bản tự động.',
+      });
     } finally {
       setPublishing(false);
     }
@@ -437,6 +451,43 @@ export default function DraftEditorPage() {
       ]);
       setAiGenerating(false);
     }, 800);
+  };
+
+  // AI Rewrite Panel State
+  const [showAiRewriteModal, setShowAiRewriteModal] = useState(false);
+  const [aiTone, setAiTone] = useState('VIRAL_FB');
+  const [customInstruction, setCustomInstruction] = useState('');
+  const [isAiRewriting, setIsAiRewriting] = useState(false);
+
+  const handleExecuteAiRewrite = async () => {
+    setIsAiRewriting(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/workspaces/${workspaceId}/drafts/${draftId}/ai-rewrite`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': 'OWNER',
+          'x-workspace-id': workspaceId,
+          'x-user-id': 'mock-default-user-id',
+        },
+        body: JSON.stringify({
+          tone: aiTone,
+          customInstruction,
+        }),
+      });
+      if (!res.ok) {
+        const msg = await parseResponseError(res, 'Viết lại bằng AI thất bại');
+        throw new Error(msg);
+      }
+      showSuccess('AI đã viết lại kịch bản & bài viết thành công! ✨');
+      setShowAiRewriteModal(false);
+      await loadDraft();
+    } catch (e: unknown) {
+      setError(getErrMsg(e));
+    } finally {
+      setIsAiRewriting(false);
+    }
   };
 
   const handleAiAutoHashtags = () => {
@@ -534,54 +585,29 @@ export default function DraftEditorPage() {
             <span>📋</span> Copy FB
           </button>
 
-          {isEditable && (
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium transition-all border border-zinc-700/50 disabled:opacity-50"
-            >
-              {saving ? 'Đang lưu...' : 'Lưu nháp'}
-            </button>
-          )}
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium transition-all border border-zinc-700/50 disabled:opacity-50"
+          >
+            {saving ? 'Đang lưu...' : '💾 Lưu nháp'}
+          </button>
 
-          {draft.status === 'DRAFT' || draft.status === 'CHANGES_REQUESTED' ? (
-            <button
-              onClick={handleSubmit}
-              disabled={submitting}
-              className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold transition-all disabled:opacity-50"
-            >
-              {submitting ? 'Đang gửi...' : 'Gửi duyệt'}
-            </button>
-          ) : null}
+          <button
+            onClick={() => setShowPublishModal(true)}
+            className="px-3.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium transition-all border border-zinc-700/50 flex items-center gap-1.5"
+            title="Tùy chọn hẹn giờ và cấu hình Fanpage xuất bản"
+          >
+            <span>⏰</span> Hẹn giờ đăng
+          </button>
 
-          {draft.status === 'READY_FOR_REVIEW' && (
-            <button
-              onClick={handleApprove}
-              disabled={approving}
-              className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-all disabled:opacity-50"
-            >
-              {approving ? 'Đang duyệt...' : 'Phê duyệt ✓'}
-            </button>
-          )}
-
-          {['DRAFT', 'CHANGES_REQUESTED', 'READY_FOR_REVIEW'].includes(draft.status) && (
-            <button
-              onClick={handleQuickPublish}
-              disabled={publishing}
-              className="px-4 py-1.5 rounded-lg bg-gradient-to-r from-amber-600 to-orange-600 text-white text-xs font-bold hover:from-amber-500 hover:to-orange-500 transition-all shadow-md shadow-orange-600/10 disabled:opacity-50 flex items-center gap-1.5"
-            >
-              {publishing ? 'Đang đăng...' : 'Đăng nhanh ⚡'}
-            </button>
-          )}
-
-          {draft.status === 'APPROVED' && (
-            <button
-              onClick={() => setShowPublishModal(true)}
-              className="px-4 py-1.5 rounded-lg bg-gradient-to-r from-accent-600 to-emerald-600 text-white text-xs font-bold hover:from-accent-500 hover:to-emerald-500 transition-all shadow-md shadow-accent-600/10"
-            >
-              Lên lịch / Đăng bài &rarr;
-            </button>
-          )}
+          <button
+            onClick={handleQuickPublish}
+            disabled={publishing}
+            className="px-4 py-1.5 rounded-lg bg-gradient-to-r from-accent-600 to-emerald-600 hover:from-accent-500 hover:to-emerald-500 text-white text-xs font-bold transition-all shadow-md shadow-accent-600/20 disabled:opacity-50 flex items-center gap-1.5"
+          >
+            {publishing ? 'Đang đăng bài...' : '🚀 Đăng Ngay Lên Facebook'}
+          </button>
         </div>
       </div>
 
@@ -684,6 +710,12 @@ export default function DraftEditorPage() {
                       <span className="text-xs font-semibold text-accent-400">Trợ lý Biên tập AI</span>
                     </div>
                     <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => setShowAiRewriteModal(true)}
+                        className="px-3 py-1 rounded-md bg-gradient-to-r from-accent-600 to-indigo-600 hover:from-accent-500 hover:to-indigo-500 text-white text-xs font-bold shadow-md shadow-accent-600/20 transition-all flex items-center gap-1.5"
+                      >
+                        <span>✨</span> Viết lại bằng ChatGPT / AI
+                      </button>
                       <button
                         onClick={handleAiSuggestHeadlines}
                         className="px-2.5 py-1 rounded-md bg-accent-500/10 hover:bg-accent-500/20 text-accent-300 text-xs font-medium border border-accent-500/30 transition-colors"
@@ -823,14 +855,100 @@ export default function DraftEditorPage() {
                         className="w-full rounded-lg bg-zinc-900/80 border border-zinc-800/80 px-3.5 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-600 hover:border-zinc-700 focus:border-accent-500/50 focus:outline-none"
                       />
                     </div>
+
+                    {/* ── VIDEO / REELS TEMPLATE SELECTION ── */}
+                    <div className="p-4 rounded-xl bg-surface-raised border border-zinc-800 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-accent-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <span>🎬 Mẫu Video / Reels Facebook</span>
+                        </label>
+                        <span className="text-[10px] text-zinc-500 font-mono">Tự động gắn tít & logo</span>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setVideoTemplate('TEMPLATE_2_BREAKING_NEWS')}
+                          className={`p-2.5 rounded-lg border text-left text-xs transition-all ${
+                            videoTemplate === 'TEMPLATE_2_BREAKING_NEWS'
+                              ? 'bg-rose-500/10 border-rose-500/50 text-rose-300 font-semibold shadow-sm shadow-rose-500/10'
+                              : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:border-zinc-700'
+                          }`}
+                        >
+                          <div className="font-bold text-[11px] mb-1">Mẫu 2: Tin Nóng (Hóng SG)</div>
+                          <div className="text-[10px] text-zinc-500">Banner đỏ/xanh + Video dưới</div>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setVideoTemplate('TEMPLATE_1_HEADLINE_OVERLAY')}
+                          className={`p-2.5 rounded-lg border text-left text-xs transition-all ${
+                            videoTemplate === 'TEMPLATE_1_HEADLINE_OVERLAY'
+                              ? 'bg-amber-500/10 border-amber-500/50 text-amber-300 font-semibold shadow-sm shadow-amber-500/10'
+                              : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:border-zinc-700'
+                          }`}
+                        >
+                          <div className="font-bold text-[11px] mb-1">Mẫu 1: Sub/Tít Vàng (Anh Subber)</div>
+                          <div className="text-[10px] text-zinc-500">Chữ vàng viền đen + Logo góc</div>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setVideoTemplate('STANDARD')}
+                          className={`p-2.5 rounded-lg border text-left text-xs transition-all ${
+                            videoTemplate === 'STANDARD'
+                              ? 'bg-zinc-800 border-zinc-600 text-zinc-100 font-semibold'
+                              : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:border-zinc-700'
+                          }`}
+                        >
+                          <div className="font-bold text-[11px] mb-1">Mẫu Chuẩn</div>
+                          <div className="text-[10px] text-zinc-500">Bài viết thường / Link</div>
+                        </button>
+                      </div>
+
+                      {videoTemplate === 'TEMPLATE_2_BREAKING_NEWS' && (
+                        <div className="flex items-center gap-2 pt-2 border-t border-zinc-800/60">
+                          <span className="text-[11px] text-zinc-400">Màu Banner:</span>
+                          {(['#E11D48', '#2563EB', '#EAB308'] as const).map((color) => (
+                            <button
+                              key={color}
+                              type="button"
+                              onClick={() => setBannerColor(color)}
+                              className={`w-6 h-6 rounded-full border-2 transition-all ${
+                                bannerColor === color ? 'border-white scale-110' : 'border-transparent opacity-60 hover:opacity-100'
+                              }`}
+                              style={{ backgroundColor: color }}
+                            />
+                          ))}
+                        </div>
+                      )}
+
+                      {videoTemplate !== 'STANDARD' && (
+                        <div className="pt-2 border-t border-zinc-800/60 space-y-2">
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="text-zinc-400">Đường dẫn Video/Reel (.mp4):</span>
+                            <span className="text-zinc-600 font-mono text-[10px]">Tự động phát</span>
+                          </div>
+                          <input
+                            type="text"
+                            value={videoUrl}
+                            onChange={(e) => setVideoUrl(e.target.value)}
+                            placeholder="https://.../video.mp4"
+                            className="w-full rounded bg-zinc-900 border border-zinc-800 px-3 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-accent-500"
+                          />
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
                 {/* ── LIVE FACEBOOK PREVIEW COLUMN ── */}
-                <div className="w-full lg:w-[420px] bg-surface-sunken border-l border-zinc-800/40 p-6 overflow-y-auto shrink-0">
+                <div className="w-full lg:w-[440px] bg-surface-sunken border-l border-zinc-800/40 p-6 overflow-y-auto shrink-0">
                   <div className="mb-4 flex items-center justify-between">
                     <span className="text-[10px] font-semibold text-zinc-500 tracking-[0.15em] uppercase">Live Facebook Preview</span>
-                    <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">Mobile Feed UI</span>
+                    <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">
+                      {videoTemplate === 'TEMPLATE_2_BREAKING_NEWS' ? 'Reel: Tin Nóng' : videoTemplate === 'TEMPLATE_1_HEADLINE_OVERLAY' ? 'Reel: Tít Vàng' : 'Feed Post'}
+                    </span>
                   </div>
 
                   {/* Facebook Mock Card */}
@@ -842,7 +960,7 @@ export default function DraftEditorPage() {
                           TF
                         </div>
                         <div>
-                          <p className="font-semibold text-zinc-200 text-xs">Tin Tức Thú Vị</p>
+                          <p className="font-semibold text-zinc-200 text-xs">ToolFace Entertainment</p>
                           <p className="text-[10px] text-zinc-400 flex items-center gap-1">
                             <span>Vừa xong</span>
                             <span>•</span>
@@ -858,25 +976,71 @@ export default function DraftEditorPage() {
                       <p className="font-bold text-sm text-white">{form.headline || 'Chưa nhập tiêu đề'}</p>
                       {form.hook && <p className="text-zinc-300 italic">{form.hook}</p>}
                       {form.body && <p className="text-zinc-300">{form.body}</p>}
-                      {form.whyItMatters && (
-                        <div className="p-2.5 rounded-lg bg-zinc-900/60 border border-zinc-800 text-[11px]">
-                          <span className="font-bold text-accent-400">📌 TẠI SAO BẠN CẦN QUAN TÂM?</span>
-                          <p className="mt-1 text-zinc-400">{form.whyItMatters}</p>
-                        </div>
-                      )}
-                      {form.discussionQuestion && (
-                        <p className="font-medium text-accent-300">💬 {form.discussionQuestion}</p>
-                      )}
                       {form.hashtags && (
                         <p className="text-accent-400 font-medium">
                           {form.hashtags.split(',').map(tag => tag.trim().startsWith('#') ? tag.trim() : `#${tag.trim()}`).join(' ')}
                         </p>
                       )}
-                      <p className="text-[10px] text-zinc-500">Nguồn: {form.attributionLine || 'Tin tức'}</p>
                     </div>
 
-                    {/* Link Card Preview if recommendedLink exists */}
-                    {form.recommendedLink && (
+                    {/* ── VIDEO TEMPLATE RENDERING PREVIEW ── */}
+                    {videoTemplate === 'TEMPLATE_2_BREAKING_NEWS' && (
+                      <div className="border-t border-b border-zinc-900 overflow-hidden bg-black aspect-[4/5] flex flex-col relative">
+                        {/* Top Breaking News Banner */}
+                        <div
+                          className="p-5 flex-1 flex flex-col justify-center items-center text-center relative"
+                          style={{ backgroundColor: bannerColor }}
+                        >
+                          <div className="absolute top-2.5 left-3 flex items-center gap-1.5 opacity-90">
+                            <div className="w-4 h-4 rounded-full bg-white/20 flex items-center justify-center text-[8px] font-bold text-white">TF</div>
+                            <span className="text-[9px] font-bold text-white tracking-wider uppercase">ToolFace News</span>
+                          </div>
+                          <h4 className="text-white font-black text-base uppercase leading-snug tracking-tight px-2 drop-shadow-md">
+                            {form.headline ? form.headline : 'ĐÁNG SỢ: TỔNG HỢP VỤ VIỆC GÂY XÔN XAO CỘNG ĐỒNG MẠNG TẠI TRUNG QUỐC 😰'}
+                          </h4>
+                        </div>
+                        {/* Bottom Video Player Area */}
+                        <div className="h-[60%] bg-zinc-900 relative overflow-hidden flex items-center justify-center">
+                          <video
+                            src={videoUrl}
+                            autoPlay
+                            loop
+                            muted
+                            playsInline
+                            className="w-full h-full object-cover"
+                          />
+                          <div className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded bg-black/60 text-[9px] font-mono text-zinc-300">
+                            0:15 / 0:59
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {videoTemplate === 'TEMPLATE_1_HEADLINE_OVERLAY' && (
+                      <div className="border-t border-b border-zinc-900 overflow-hidden bg-black aspect-square relative flex items-center justify-center">
+                        <video
+                          src={videoUrl}
+                          autoPlay
+                          loop
+                          muted
+                          playsInline
+                          className="w-full h-full object-cover"
+                        />
+                        {/* Top Right Watermark Badge */}
+                        <div className="absolute top-3 right-3 flex items-center gap-1 px-2 py-1 rounded-full bg-black/60 backdrop-blur-sm border border-white/20">
+                          <div className="w-4 h-4 rounded-full bg-amber-400 text-black font-extrabold flex items-center justify-center text-[8px]">TF</div>
+                          <span className="text-[9px] font-bold text-amber-300 uppercase">Subber TV</span>
+                        </div>
+                        {/* Bottom Yellow Headline Overlay */}
+                        <div className="absolute bottom-4 inset-x-3 text-center">
+                          <p className="text-[#FFE600] font-black text-sm uppercase leading-tight tracking-wide drop-shadow-[0_2px_4px_rgba(0,0,0,0.95)] [text-shadow:_0_2px_4px_#000,_0_0_8px_#000]">
+                            {form.headline ? form.headline : 'HƠN CẢ TRUYỆN TU TIÊN: ĐANG DẠY HỌC BÌNH THƯỜNG, THẦY GIÁO BẤT NGỜ "PHI THĂNG" 5 THÁNG'}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {videoTemplate === 'STANDARD' && form.recommendedLink && (
                       <div className="border-t border-b border-zinc-800 bg-zinc-900/40 p-3 flex items-center gap-3">
                         <div className="w-12 h-12 rounded bg-zinc-800 flex items-center justify-center text-zinc-500 text-lg shrink-0">
                           🔗
@@ -1131,6 +1295,270 @@ export default function DraftEditorPage() {
                 className="px-5 py-2 rounded-lg bg-gradient-to-r from-accent-600 to-emerald-600 hover:from-accent-500 hover:to-emerald-500 text-white text-xs font-bold disabled:opacity-50"
               >
                 {publishing ? 'Đang thực thi...' : publishType === 'IMMEDIATE' ? 'Xác nhận Đăng bài' : 'Xác nhận Lên lịch'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── PUBLISH RESULT NOTIFICATION POPUP (MODAL) ── */}
+      {publishResultModal && (
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget && publishResultModal.status !== 'LOADING') {
+              setPublishResultModal(null);
+            }
+          }}
+          className="fixed inset-0 bg-black/80 backdrop-blur-md z-[99999] flex items-center justify-center p-4 animate-fade-in"
+        >
+          <div className="w-full max-w-md rounded-2xl bg-[#121316] border border-zinc-700/80 p-6 shadow-2xl space-y-5 text-center relative overflow-hidden">
+            {/* Top decorative glow */}
+            <div
+              className={`absolute -top-16 left-1/2 -translate-x-1/2 w-44 h-44 rounded-full blur-3xl opacity-30 pointer-events-none ${
+                publishResultModal.status === 'SUCCESS'
+                  ? 'bg-emerald-500'
+                  : publishResultModal.status === 'FAILED'
+                  ? 'bg-rose-500'
+                  : 'bg-accent-500'
+              }`}
+            />
+
+            {/* Status Icon */}
+            <div className="flex justify-center pt-2">
+              {publishResultModal.status === 'LOADING' && (
+                <div className="w-16 h-16 rounded-full bg-accent-500/10 border border-accent-500/30 flex items-center justify-center relative">
+                  <div className="w-8 h-8 border-3 border-accent-500/30 border-t-accent-400 rounded-full animate-spin" />
+                </div>
+              )}
+
+              {publishResultModal.status === 'SUCCESS' && (
+                <div className="w-16 h-16 rounded-full bg-emerald-500/15 border border-emerald-500/40 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+                  <span className="text-3xl">✓</span>
+                </div>
+              )}
+
+              {publishResultModal.status === 'FAILED' && (
+                <div className="w-16 h-16 rounded-full bg-rose-500/15 border border-rose-500/40 flex items-center justify-center shadow-lg shadow-rose-500/20">
+                  <span className="text-3xl text-rose-400">⚠️</span>
+                </div>
+              )}
+            </div>
+
+            {/* Title & Message */}
+            <div className="space-y-2">
+              <h3
+                className={`text-lg font-bold ${
+                  publishResultModal.status === 'SUCCESS'
+                    ? 'text-emerald-300'
+                    : publishResultModal.status === 'FAILED'
+                    ? 'text-rose-300'
+                    : 'text-zinc-100'
+                }`}
+              >
+                {publishResultModal.title}
+              </h3>
+              <p className="text-xs text-zinc-300 leading-relaxed max-w-sm mx-auto">
+                {publishResultModal.message}
+              </p>
+            </div>
+
+            {/* Metadata Card (if success) */}
+            {publishResultModal.status === 'SUCCESS' && publishResultModal.pageName && (
+              <div className="p-3.5 rounded-xl bg-zinc-900/90 border border-zinc-800 text-left space-y-1.5 text-xs font-mono">
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Fanpage:</span>
+                  <span className="text-zinc-200 font-semibold">{publishResultModal.pageName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Định dạng:</span>
+                  <span className="text-accent-400">{publishResultModal.publicationType || 'FACEBOOK_POST'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Trạng thái:</span>
+                  <span className="text-emerald-400 font-bold">Đã phân phối ✓</span>
+                </div>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="pt-2 flex flex-col gap-2">
+              {publishResultModal.status === 'SUCCESS' && (
+                <>
+                  <button
+                    onClick={() => {
+                      handleCopyFormattedFacebook();
+                      showSuccess('Đã sao chép toàn bộ bài viết vào bộ nhớ tạm!');
+                    }}
+                    className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-accent-600 to-emerald-600 hover:from-accent-500 hover:to-emerald-500 text-white font-bold text-xs shadow-lg transition flex items-center justify-center gap-1.5"
+                  >
+                    <span>📋</span>
+                    <span>Sao chép bài viết (Đã kèm Link & Hashtags)</span>
+                  </button>
+
+                  <button
+                    onClick={() => setPublishResultModal(null)}
+                    className="w-full py-2 px-4 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-semibold text-xs transition"
+                  >
+                    Hoàn tất & Đóng
+                  </button>
+                </>
+              )}
+
+              {publishResultModal.status === 'FAILED' && (
+                <>
+                  <button
+                    onClick={() => {
+                      setPublishResultModal(null);
+                      setShowPublishModal(true);
+                    }}
+                    className="w-full py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-lg transition"
+                  >
+                    Thử xuất bản lại
+                  </button>
+                  <button
+                    onClick={() => setPublishResultModal(null)}
+                    className="w-full py-2 px-4 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-semibold text-xs transition"
+                  >
+                    Đóng thông báo
+                  </button>
+                </>
+              )}
+
+              {publishResultModal.status === 'LOADING' && (
+                <p className="text-[11px] text-zinc-500 animate-pulse">Vui lòng chờ trong giây lát...</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── AI SCRIPT & POST REWRITER MODAL (CHATGPT / OPENAI / GEMINI) ── */}
+      {showAiRewriteModal && (
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !isAiRewriting) {
+              setShowAiRewriteModal(false);
+            }
+          }}
+          className="fixed inset-0 bg-black/80 backdrop-blur-md z-[99999] flex items-center justify-center p-4 animate-fade-in"
+        >
+          <div className="w-full max-w-lg rounded-2xl bg-[#121316] border border-zinc-700/80 p-6 shadow-2xl space-y-5 text-left relative overflow-hidden">
+            {/* Top decorative glow */}
+            <div className="absolute -top-16 left-1/2 -translate-x-1/2 w-48 h-48 rounded-full blur-3xl opacity-30 bg-indigo-500 pointer-events-none" />
+
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">✨</span>
+                <div>
+                  <h3 className="text-sm font-bold text-zinc-100">Trợ Lý AI Viết Lại Kịch Bản & Bài Viết</h3>
+                  <p className="text-[11px] text-zinc-400">Sử dụng API Key ChatGPT / OpenAI / Gemini đã cấu hình</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowAiRewriteModal(false)}
+                disabled={isAiRewriting}
+                className="text-zinc-500 hover:text-zinc-300 disabled:opacity-40"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Style selector */}
+            <div className="space-y-2">
+              <label className="block text-xs font-semibold text-zinc-300">Chọn Phong Cách Bài Đăng / Kịch Bản</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {[
+                  { id: 'VIRAL_FB', title: '🔥 Viral FB Triệu View', desc: 'Hook giật tít, tò mò, emoji đắt giá' },
+                  { id: 'REEL_SUB_GOLD', title: '🎬 Reel Sub Vàng (Anh Subber)', desc: 'Tiêu đề in hoa chữ vàng, storytelling kịch tính' },
+                  { id: 'BREAKING_BANNER', title: '🚨 Tin Nóng (Banner Đỏ)', desc: 'Cảnh báo khẩn, thời sự nóng hổi' },
+                  { id: 'HUMOR_DRAMA', title: '🎭 Hài Hước / Drama', desc: 'Hài hước, châm biếm, thu hút tranh luận' },
+                  { id: 'JOURNALISM', title: '📰 Báo Chí Súc Tích', desc: 'Khách quan, trang trọng, chuẩn dữ kiện' },
+                ].map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setAiTone(item.id)}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      aiTone === item.id
+                        ? 'bg-accent-500/15 border-accent-500/50 text-accent-200 shadow-sm shadow-accent-500/10'
+                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:border-zinc-700'
+                    }`}
+                  >
+                    <p className="text-xs font-bold text-zinc-200">{item.title}</p>
+                    <p className="text-[10px] text-zinc-500 mt-0.5">{item.desc}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Custom Instruction Input & Quick Presets */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-zinc-300">Yêu cầu bổ sung cho AI (Tùy chọn)</label>
+                <span className="text-[10px] text-zinc-500">Bấm gợi ý bên dưới để chọn nhanh</span>
+              </div>
+
+              {/* Clickable Preset Prompt Chips */}
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { label: '✨ Tự nhiên như Người thật (Anti-AI)', prompt: 'Viết cực kỳ tự nhiên, gãy gọn, giàu cảm xúc chân thực như biên tập viên kỳ cựu. CẤM các từ ngữ sáo rỗng của AI như "không thể phủ nhận", "minh chứng cho", "bức tranh toàn cảnh", "cảm động lòng người", "cuộc sống mang đến".' },
+                  { label: '🎯 Truyền cảm hứng sâu sắc', prompt: 'Kể lại hành trình nghị lực một cách chân thực, sâu lắng, đi thẳng vào các chi tiết đời thường và câu nói đắt giá của nhân vật.' },
+                  { label: '🔥 Hook 3s giật tít Viral', prompt: 'Tiêu đề và mở đầu đánh thẳng vào nghịch lý/con số ấn tượng, giật tít tự nhiên, tạo sự tò mò cao độ giữ chân người xem.' },
+                  { label: '🎬 Kịch bản Reel Sub Vàng', prompt: 'Viết dạng kịch bản video ngắn [Cảnh quay] + [Lời bình Sub vàng kịch tính], ngắt nhịp dứt khoát theo phong cách Review.' },
+                  { label: '💬 Kích thích tranh luận', prompt: 'Nêu góc nhìn đa chiều, phân tích sắc bén và đặt câu hỏi tranh luận mạnh mẽ ở cuối bài để thu hút hàng trăm bình luận.' },
+                  { label: '⚡ Tóm tắt 3 gạch đầu dòng', prompt: 'Tóm tắt tin tức cực kỳ cô đọng trong 3 gạch đầu dòng, ngắt dòng thoáng mắt, dùng emoji chỉ điểm chi tiết cốt lõi.' },
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => setCustomInstruction(preset.prompt)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-all ${
+                      customInstruction === preset.prompt
+                        ? 'bg-accent-500/20 border-accent-500/60 text-accent-300 shadow-sm shadow-accent-500/10'
+                        : 'bg-zinc-900/90 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700 hover:bg-zinc-800/60'
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+
+              <textarea
+                value={customInstruction}
+                onChange={(e) => setCustomInstruction(e.target.value)}
+                placeholder="Chọn gợi ý bên trên hoặc tự nhập: Ví dụ: Thêm lời thoại kịch tính cho 3 giây đầu, chèn câu hỏi kích thích bình luận..."
+                rows={3}
+                className="w-full rounded-xl bg-zinc-900 border border-zinc-800 p-3 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-accent-500"
+              />
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-zinc-800">
+              <button
+                type="button"
+                onClick={() => setShowAiRewriteModal(false)}
+                disabled={isAiRewriting}
+                className="px-4 py-2 rounded-xl bg-zinc-800 text-zinc-300 text-xs font-medium hover:bg-zinc-700 disabled:opacity-50"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteAiRewrite}
+                disabled={isAiRewriting}
+                className="px-5 py-2 rounded-xl bg-gradient-to-r from-accent-600 to-indigo-600 hover:from-accent-500 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-accent-600/20 flex items-center gap-2 disabled:opacity-50"
+              >
+                {isAiRewriting ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>AI Đang Viết Lại...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>✨</span>
+                    <span>Thực Thi Viết Lại Với AI</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

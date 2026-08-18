@@ -15,10 +15,11 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { DatabaseService } from './common/database.service';
-import { MockAuthGuard, PermissionsGuard, RequirePermissions } from './common/auth.guard';
+import { JwtAuthGuard, PermissionsGuard, RequirePermissions } from './common/auth.guard';
 import { JsonLogger } from './common/logger.service';
 import { SaasService } from './common/services/saas.service';
 import { TimezoneService } from '@newsflow/database';
@@ -29,7 +30,8 @@ const CANCELLABLE_STATUSES = ['SCHEDULED', 'DUE'];
 const MAX_CALENDAR_DAYS = 93;
 
 @Controller('workspaces/:workspaceId')
-@UseGuards(MockAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@Throttle({ default: { limit: 10, ttl: 60000 } })
 export class SchedulingController {
   private readonly tzService = new TimezoneService();
 
@@ -466,10 +468,14 @@ export class SchedulingController {
       throw new BadRequestException(`Calendar range cannot exceed ${MAX_CALENDAR_DAYS} days`);
     }
 
-    const pageSize = Math.min(parseInt(limit, 10) || 50, 100);
+    const pageSize = Math.min(parseInt(limit, 10) || 100, 200);
     const where: any = {
       workspaceId,
-      publishAtUtc: { gte: fromDate, lte: toDate },
+      OR: [
+        { publishAtUtc: { gte: fromDate, lte: toDate } },
+        { publishedAt: { gte: fromDate, lte: toDate } },
+        { createdAt: { gte: fromDate, lte: toDate } },
+      ],
       ...(status ? { status } : {}),
       ...(pageConnectionId ? { pageConnectionId } : {}),
       ...(cursor ? { id: { gt: cursor } } : {}),
@@ -477,7 +483,7 @@ export class SchedulingController {
 
     const jobs = await this.p.publishJob.findMany({
       where,
-      orderBy: { publishAtUtc: 'asc' },
+      orderBy: { createdAt: 'desc' },
       take: pageSize + 1,
       select: {
         id: true,
@@ -494,6 +500,8 @@ export class SchedulingController {
         createdAt: true,
         publishedAt: true,
         cancelledAt: true,
+        messageSnapshot: true,
+        linkSnapshot: true,
         pageConnection: { select: { pageName: true, pageId: true, status: true } },
       },
     });
@@ -502,14 +510,43 @@ export class SchedulingController {
     const items = hasNextPage ? jobs.slice(0, pageSize) : jobs;
     const nextCursor = hasNextPage ? items[items.length - 1]?.id : null;
 
+    // Safely join draft details in memory
+    const draftIds = [...new Set(items.map((j: any) => j.draftId).filter(Boolean))];
+    const drafts = draftIds.length > 0
+      ? await this.p.draft.findMany({
+          where: { id: { in: draftIds } },
+          select: {
+            id: true,
+            status: true,
+            versions: {
+              take: 1,
+              orderBy: { versionNumber: 'desc' },
+              select: { headline: true, hook: true, body: true },
+            },
+          },
+        })
+      : [];
+    const draftMap = new Map(drafts.map((d: any) => [d.id, d]));
+
     return {
-      items: items.map((j: any) => ({
-        ...j,
-        publishAtLocal: j.publishAtUtc
-          ? this.tzService.formatUtcAsLocal(j.publishAtUtc, timezone)
-          : null,
-        displayTimezone: timezone,
-      })),
+      items: items.map((j: any) => {
+        const effectiveDate = j.publishAtUtc || j.publishedAt || j.createdAt;
+        const matchedDraft: any = draftMap.get(j.draftId);
+        const headline =
+          matchedDraft?.versions?.[0]?.headline ||
+          (j.messageSnapshot ? j.messageSnapshot.split('\n')[0] : 'Bài viết Facebook');
+        const hook = matchedDraft?.versions?.[0]?.hook || '';
+
+        return {
+          ...j,
+          headline,
+          hook,
+          publishAtLocal: effectiveDate
+            ? this.tzService.formatUtcAsLocal(effectiveDate, timezone)
+            : null,
+          displayTimezone: timezone,
+        };
+      }),
       nextCursor,
     };
   }
@@ -537,7 +574,8 @@ export class SchedulingController {
 // ─── Notifications Controller ────────────────────────────────────────────────
 
 @Controller('workspaces/:workspaceId')
-@UseGuards(MockAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@Throttle({ default: { limit: 10, ttl: 60000 } })
 export class NotificationsController {
   constructor(
     private readonly db: DatabaseService,

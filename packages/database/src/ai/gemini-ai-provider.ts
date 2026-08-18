@@ -80,8 +80,9 @@ export class GeminiAiProvider implements AiProvider {
           });
 
           const apiCall = model.generateContent(prompt);
+          const timeoutMs = context.timeoutMs || 60000;
           const timeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new Error('AI_REQUEST_TIMEOUT')), context.timeoutMs);
+            setTimeout(() => reject(new Error('AI_REQUEST_TIMEOUT')), timeoutMs);
           });
 
           const response = await Promise.race([apiCall, timeoutPromise]);

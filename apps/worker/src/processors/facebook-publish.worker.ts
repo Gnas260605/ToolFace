@@ -96,38 +96,129 @@ export class FacebookPublishWorker extends WorkerHost {
         }
       }
 
-      if (!token && process.env.FB_PAGE_ACCESS_TOKEN && process.env.FB_PAGE_ID) {
-        token = process.env.FB_PAGE_ACCESS_TOKEN;
-        pageId = process.env.FB_PAGE_ID;
-        this.logger.log({
-          message: `Using Facebook page credentials from environment variables override`,
-          publishJobId,
-          pageId
-        });
+      if (!token) {
+        if (process.env.FB_PAGE_ACCESS_TOKEN && process.env.FB_PAGE_ID && workspaceId === process.env.FB_ENV_FALLBACK_WORKSPACE_ID) {
+          token = process.env.FB_PAGE_ACCESS_TOKEN;
+          pageId = process.env.FB_PAGE_ID;
+          this.logger.log({
+            message: `Using Facebook page credentials from environment variables override`,
+            publishJobId,
+            pageId
+          });
+        } else {
+          await this.markJobFailed(publishJobId, 'NO_CONNECTION', 'FACEBOOK_PAGE_NOT_CONNECTED', 'Workspace has no active Facebook page connection');
+          return;
+        }
       }
 
       if (!token || !pageId) {
         throw new Error('No valid Facebook page connection or ENV credentials found for publishing.');
       }
 
-      // Publish
+      // Publish based on publicationType
       let result;
-      if (publishJob.publicationType === 'LINK' && publishJob.linkSnapshot) {
+      const mediaUrls = (publishJob.mediaUrls as string[]) || [];
+      const primaryMedia = mediaUrls[0];
+      const isVideo = primaryMedia && (primaryMedia.endsWith('.mp4') || primaryMedia.endsWith('.mov') || primaryMedia.endsWith('.m3u8'));
+
+      if (publishJob.publicationType === 'REEL' || (isVideo && publishJob.publicationType !== 'TEXT')) {
+        if (this.facebookProvider.publishReelPost) {
+          result = await this.facebookProvider.publishReelPost({
+            pageAccessToken: token,
+            pageId,
+            description: publishJob.messageSnapshot,
+            videoUrl: primaryMedia || publishJob.linkSnapshot || '',
+            title: draft?.title || undefined,
+          });
+        } else {
+          result = await this.facebookProvider.publishTextPost({
+            pageAccessToken: token,
+            pageId,
+            message: publishJob.messageSnapshot,
+          });
+        }
+      } else if (publishJob.publicationType === 'VIDEO') {
+        if (this.facebookProvider.publishVideoPost) {
+          result = await this.facebookProvider.publishVideoPost({
+            pageAccessToken: token,
+            pageId,
+            message: publishJob.messageSnapshot,
+            videoUrl: primaryMedia || publishJob.linkSnapshot || '',
+            title: draft?.title || undefined,
+          });
+        } else {
+          result = await this.facebookProvider.publishTextPost({
+            pageAccessToken: token,
+            pageId,
+            message: publishJob.messageSnapshot,
+          });
+        }
+      } else if (publishJob.publicationType === 'PHOTO' && primaryMedia) {
+        if (this.facebookProvider.publishPhotoPost) {
+          result = await this.facebookProvider.publishPhotoPost({
+            pageAccessToken: token,
+            pageId,
+            message: publishJob.messageSnapshot,
+            photoUrl: primaryMedia,
+          });
+        } else {
+          result = await this.facebookProvider.publishTextPost({
+            pageAccessToken: token,
+            pageId,
+            message: publishJob.messageSnapshot,
+          });
+        }
+      } else if (publishJob.publicationType === 'COMMENT_LINK') {
+        if (primaryMedia && this.facebookProvider.publishPhotoPost) {
+          result = await this.facebookProvider.publishPhotoPost({
+            pageAccessToken: token,
+            pageId,
+            message: publishJob.messageSnapshot,
+            photoUrl: primaryMedia,
+          });
+        } else {
+          result = await this.facebookProvider.publishTextPost({
+            pageAccessToken: token,
+            pageId,
+            message: publishJob.messageSnapshot,
+          });
+        }
+      } else if (publishJob.publicationType === 'LINK' && publishJob.linkSnapshot) {
         result = await this.facebookProvider.publishLinkPost({
           pageAccessToken: token,
           pageId,
           message: publishJob.messageSnapshot,
-          link: publishJob.linkSnapshot
+          link: publishJob.linkSnapshot,
         });
       } else {
         result = await this.facebookProvider.publishTextPost({
           pageAccessToken: token,
           pageId,
-          message: publishJob.messageSnapshot
+          message: publishJob.messageSnapshot,
         });
       }
 
       if (result.success) {
+        // If COMMENT_LINK mode and linkSnapshot is present, auto post the link as the first comment
+        if (
+          publishJob.publicationType === 'COMMENT_LINK' &&
+          publishJob.linkSnapshot &&
+          result.facebookPostId &&
+          this.facebookProvider.publishComment
+        ) {
+          try {
+            const commentMsg = `👉 Đọc chi tiết bài viết tại: ${publishJob.linkSnapshot}`;
+            await this.facebookProvider.publishComment({
+              pageAccessToken: token,
+              postId: result.facebookPostId,
+              message: commentMsg,
+            });
+            this.logger.log({ message: `Auto comment with link posted successfully`, publishJobId, facebookPostId: result.facebookPostId });
+          } catch (commentErr: any) {
+            this.logger.warn({ message: `Could not post comment link: ${commentErr?.message}`, publishJobId });
+          }
+        }
+
         // Success
         await this.p.publishJob.update({
           where: { id: publishJobId },

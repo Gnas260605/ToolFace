@@ -25,13 +25,14 @@ import {
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { DatabaseService } from './common/database.service';
-import { MockAuthGuard, PermissionsGuard, RequirePermissions } from './common/auth.guard';
+import { JwtAuthGuard, PermissionsGuard, RequirePermissions } from './common/auth.guard';
 import { SaasService } from './common/services/saas.service';
 import {
   safeFetch,
   parseFeed,
   normalizeUrl,
   getDomain,
+  REPUTABLE_NEWS_SOURCES,
 } from '@newsflow/database';
 
 const SOURCE_TYPE_VALUES = ['OFFICIAL_RSS', 'OFFICIAL_API', 'APPROVED_WEB_PAGE', 'MANUAL_URL'] as const;
@@ -142,7 +143,7 @@ export class TestSourceDto {
 }
 
 @Controller('workspaces/:workspaceId/sources')
-@UseGuards(MockAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class SourcesController {
   constructor(
     private readonly db: DatabaseService,
@@ -535,5 +536,64 @@ export class SourcesController {
     });
 
     return updated;
+  }
+
+  @Get('presets')
+  @RequirePermissions('sources.read')
+  async getPresets(): Promise<any> {
+    return { data: REPUTABLE_NEWS_SOURCES };
+  }
+
+  @Post('presets/import')
+  @RequirePermissions('sources.manage')
+  async importPresets(
+    @Param('workspaceId') workspaceId: string,
+    @Body() body?: { selectedDomains?: string[] },
+  ): Promise<any> {
+    const selected = body?.selectedDomains && body.selectedDomains.length > 0
+      ? REPUTABLE_NEWS_SOURCES.filter((s: any) => body.selectedDomains?.includes(s.domain) || body.selectedDomains?.includes(s.feedUrl))
+      : REPUTABLE_NEWS_SOURCES;
+
+    const results = [];
+    for (const item of selected) {
+      const existing = await this.db.source.findFirst({
+        where: { workspaceId, feedUrl: item.feedUrl, deletedAt: null },
+      });
+
+      if (!existing) {
+        const created = await this.db.source.create({
+          data: {
+            workspaceId,
+            name: item.name,
+            domain: item.domain,
+            feedUrl: item.feedUrl,
+            sourceType: item.sourceType,
+            language: item.language,
+            country: item.country,
+            category: item.category,
+            trustLevel: item.trustLevel,
+            attributionName: item.attributionName,
+            status: SOURCE_STATUS.ACTIVE,
+            healthStatus: SOURCE_HEALTH_STATUS.UNKNOWN,
+            nextPollAt: new Date(),
+            createdByUserId: 'system-preset',
+          },
+        });
+        results.push(created);
+
+        // Schedule initial poll
+        await this.sourcePollQueue.add(
+          'poll',
+          { sourceId: created.id, workspaceId, correlationId: `preset-import-${Date.now()}` },
+          { attempts: 3, backoff: { type: 'exponential', delay: 1000 } },
+        );
+      }
+    }
+
+    return {
+      message: `Đã nhập thành công ${results.length} nguồn tin uy tín`,
+      importedCount: results.length,
+      data: results,
+    };
   }
 }

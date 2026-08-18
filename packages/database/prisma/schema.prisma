@@ -463,6 +463,16 @@ model EditorialPolicy {
   defaultDraftLanguage     String   @default("vi") @map("default_draft_language")
   monthlyAiBudgetMinor     Int      @default(2000) @map("monthly_ai_budget_minor")
   monthlyAiGenerationLimit Int      @default(200) @map("monthly_ai_generation_limit")
+  
+  // Auto-Pilot Autonomous Mode fields
+  autoPilotEnabled              Boolean  @default(false) @map("auto_pilot_enabled")
+  autoPublishTargetPageId       String?  @map("auto_publish_target_page_id")
+  autoPublishBrandProfileId     String?  @map("auto_publish_brand_profile_id")
+  autoPublishIntervalMinutes    Int      @default(30) @map("auto_publish_interval_minutes")
+  autoPublishImmediate          Boolean  @default(false) @map("auto_publish_immediate")
+  autoPublishMinSafetyScore     Float    @default(0.8) @map("auto_publish_min_safety_score")
+  autoPublishPostType           String   @default("LINK") @map("auto_publish_post_type")
+
   createdAt                DateTime @default(now()) @map("created_at")
   updatedAt                DateTime @updatedAt @map("updated_at")
 

@@ -64,13 +64,44 @@ function extractImage(item: any): string | undefined {
   return undefined;
 }
 
+function decodeHtmlEntities(str: string): string {
+  if (!str) return '';
+  return str
+    .replace(/&aacute;/gi, 'á')
+    .replace(/&agrave;/gi, 'à')
+    .replace(/&atilde;/gi, 'ã')
+    .replace(/&acirc;/gi, 'â')
+    .replace(/&eacute;/gi, 'é')
+    .replace(/&egrave;/gi, 'è')
+    .replace(/&ecirc;/gi, 'ê')
+    .replace(/&iacute;/gi, 'í')
+    .replace(/&igrave;/gi, 'ì')
+    .replace(/&oacute;/gi, 'ó')
+    .replace(/&ograve;/gi, 'ò')
+    .replace(/&otilde;/gi, 'õ')
+    .replace(/&ocirc;/gi, 'ô')
+    .replace(/&uacute;/gi, 'ú')
+    .replace(/&ugrave;/gi, 'ù')
+    .replace(/&yacute;/gi, 'ý')
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec))
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+}
+
 function cleanText(text: any): string {
   if (!text) return '';
+  let raw = '';
   if (typeof text === 'object') {
-    if (text['#text']) return String(text['#text']).trim();
-    return '';
+    if (text['#text']) raw = String(text['#text']).trim();
+    else return '';
+  } else {
+    raw = String(text).trim();
   }
-  return String(text).trim();
+  return decodeHtmlEntities(raw);
 }
 
 export function parseFeed(xmlContent: string, feedUrl: string, maxEntries = 50): FeedParseResult {

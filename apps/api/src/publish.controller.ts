@@ -1,15 +1,17 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Controller, Post, Get, Param, Body, Headers, UseGuards, BadRequestException, ConflictException } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { DatabaseService } from './common/database.service';
-import { MockAuthGuard, PermissionsGuard, RequirePermissions } from './common/auth.guard';
+import { JwtAuthGuard, PermissionsGuard, RequirePermissions } from './common/auth.guard';
 import { PublishingEligibilityService } from './common/services/publishing-eligibility.service';
 import { JsonLogger } from './common/logger.service';
 import { SaasService } from './common/services/saas.service';
 
 @Controller('workspaces/:workspaceId')
-@UseGuards(MockAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@Throttle({ default: { limit: 10, ttl: 60000 } })
 export class PublishController {
   constructor(
     private readonly db: DatabaseService,

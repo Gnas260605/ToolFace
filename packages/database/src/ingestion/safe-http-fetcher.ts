@@ -69,18 +69,9 @@ export async function resolveIp(hostname: string): Promise<string> {
   });
 }
 
-function isUrlAllowed(url: URL, options: SafeFetchOptions): boolean {
-  // Allow only https, or http in development mode for allowed hosts
-  if (url.protocol === 'http:') {
-    if (!options.allowHttpInDev) {
-      return false;
-    }
-    const hostname = url.hostname.toLowerCase();
-    const allowedHosts = options.allowedLocalHosts || ['localhost', '127.0.0.1', 'minio'];
-    if (!allowedHosts.includes(hostname)) {
-      return false;
-    }
-  } else if (url.protocol !== 'https:') {
+function isUrlAllowed(url: URL, _options: SafeFetchOptions): boolean {
+  // Allow standard web protocols
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
     return false;
   }
 

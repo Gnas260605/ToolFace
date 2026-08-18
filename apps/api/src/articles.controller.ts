@@ -9,13 +9,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { DatabaseService } from './common/database.service';
-import { MockAuthGuard, PermissionsGuard, RequirePermissions } from './common/auth.guard';
+import { JwtAuthGuard, PermissionsGuard, RequirePermissions } from './common/auth.guard';
 
 type ArticleRiskLevel = 'LOW' | 'MEDIUM' | 'HIGH';
 type ClusterStatus = 'ACTIVE' | 'CLOSED' | 'ARCHIVED';
 
 @Controller('workspaces/:workspaceId')
-@UseGuards(MockAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class ArticlesController {
   constructor(private readonly db: DatabaseService) {}
 

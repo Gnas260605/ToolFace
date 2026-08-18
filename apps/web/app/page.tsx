@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { Warning, CheckCircle, ArrowRight } from '@phosphor-icons/react';
 
 interface SystemStatus {
   name: string;
@@ -51,7 +52,7 @@ export default function Home() {
       <header className="relative z-10 w-full max-w-6xl mx-auto px-6 py-6 flex items-center justify-between">
         <div className="flex items-center gap-3 group cursor-pointer">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent-500 to-emerald-600 flex items-center justify-center shadow-lg shadow-accent-500/10 group-hover:scale-105 transition-transform">
-            <span className="font-display text-white text-xl font-bold italic">T</span>
+            <span className="font-display text-white text-xl font-bold">T</span>
           </div>
           <div>
             <span className="text-lg font-bold text-zinc-100 tracking-tight">ToolFace</span>
@@ -96,10 +97,10 @@ export default function Home() {
                 <span className="text-[10px] font-semibold tracking-widest uppercase text-accent-400">Production Ready</span>
               </div>
 
-              <h1 className="text-5xl sm:text-6xl lg:text-7xl leading-[0.95] tracking-tight">
-                <span className="font-display italic text-zinc-100">Tự động hóa</span>
+              <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold leading-[1.05] tracking-tight">
+                <span className="font-display text-zinc-100">Tự động hóa</span>
                 <br />
-                <span className="font-display italic bg-clip-text text-transparent bg-gradient-to-r from-accent-400 via-emerald-400 to-teal-300">
+                <span className="font-display bg-clip-text text-transparent bg-gradient-to-r from-accent-400 via-emerald-400 to-teal-300">
                   nội dung Facebook
                 </span>
               </h1>
@@ -145,10 +146,8 @@ export default function Home() {
 
                 {!loading && !status && (
                   <div className="text-center py-4 space-y-3">
-                    <div className="w-12 h-12 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mx-auto">
-                      <svg className="w-5 h-5 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                      </svg>
+                    <div className="w-12 h-12 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mx-auto text-rose-400">
+                      <Warning size={24} weight="duotone" />
                     </div>
                     <p className="text-sm font-medium text-rose-400">Không kết nối được API</p>
                     <p className="text-xs text-zinc-500">Hãy khởi động backend trước</p>
@@ -159,9 +158,7 @@ export default function Home() {
                   <>
                     <div className="flex items-center gap-4 p-4 rounded-xl bg-emerald-950/20 border border-emerald-500/15">
                       <div className="w-10 h-10 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
+                        <CheckCircle size={24} weight="duotone" />
                       </div>
                       <div>
                         <p className="text-xs font-semibold text-emerald-400">API Gateway Connected</p>
@@ -174,9 +171,7 @@ export default function Home() {
                       className="flex w-full items-center justify-center gap-2 px-5 py-3.5 rounded-xl bg-gradient-to-r from-accent-600 to-emerald-600 hover:from-accent-500 hover:to-emerald-500 text-white font-bold text-sm transition-all duration-300 shadow-lg shadow-accent-600/15 hover:shadow-accent-500/25 active:scale-[0.98]"
                     >
                       Vào Bảng Điều Khiển
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                      </svg>
+                      <ArrowRight size={20} weight="bold" />
                     </Link>
 
                     <div className="grid grid-cols-2 gap-4 pt-4 border-t border-zinc-800/30">
@@ -200,7 +195,7 @@ export default function Home() {
         <section className="mt-28">
           <div className="text-center max-w-xl mx-auto mb-14 space-y-3">
             <p className="text-[10px] font-semibold tracking-[0.2em] uppercase text-accent-400">Roadmap</p>
-            <h2 className="font-display italic text-3xl sm:text-4xl text-zinc-100">
+            <h2 className="font-display font-bold text-3xl sm:text-4xl text-zinc-100">
               Lộ trình phát triển
             </h2>
             <p className="text-sm text-zinc-500">Từng giai đoạn hóa cứng để đưa hệ thống lên production-grade</p>
@@ -231,7 +226,7 @@ export default function Home() {
                     PHASE {p.phase}
                   </span>
 
-                  <h4 className="text-base font-bold text-zinc-100 mt-1.5 font-display italic">
+                  <h4 className="text-base font-bold text-zinc-100 mt-1.5 font-display">
                     {p.title}
                   </h4>
 
