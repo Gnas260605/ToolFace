@@ -97,6 +97,7 @@ export class FallbackAiProvider implements AiProvider {
           provider: type,
         };
       } catch (err) {
+        // eslint-disable-next-line no-console
         console.error(`[FallbackAiProvider] extractFacts error in ${type}:`, err);
         lastError = err;
       }
@@ -116,6 +117,7 @@ export class FallbackAiProvider implements AiProvider {
           provider: type,
         };
       } catch (err) {
+        // eslint-disable-next-line no-console
         console.error(`[FallbackAiProvider] generateDraft error in ${type}:`, err);
         lastError = err;
       }
@@ -135,6 +137,7 @@ export class FallbackAiProvider implements AiProvider {
           provider: type,
         };
       } catch (err) {
+        // eslint-disable-next-line no-console
         console.error(`[FallbackAiProvider] verifyDraft error in ${type}:`, err);
         lastError = err;
       }
@@ -156,6 +159,7 @@ export class FallbackAiProvider implements AiProvider {
           };
         }
       } catch (err) {
+        // eslint-disable-next-line no-console
         console.error(`[FallbackAiProvider] scoreViralPotential error in ${type}:`, err);
         lastError = err;
       }

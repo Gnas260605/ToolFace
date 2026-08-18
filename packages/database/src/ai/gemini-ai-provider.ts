@@ -51,6 +51,7 @@ export class GeminiAiProvider implements AiProvider {
   private rotateKey() {
     if (this.keys.length > 1) {
       this.currentKeyIndex = (this.currentKeyIndex + 1) % this.keys.length;
+      // eslint-disable-next-line no-console
       console.log(`[GeminiAiProvider] Rotating to API key #${this.currentKeyIndex + 1}/${this.keys.length}`);
     }
   }
@@ -146,6 +147,7 @@ export class GeminiAiProvider implements AiProvider {
             throw err;
           }
           if (err.name === 'ZodError') {
+            // eslint-disable-next-line no-console
             console.error('Gemini ZodError:', JSON.stringify(err.issues, null, 2));
             throw new Error('AI_SCHEMA_VALIDATION_FAILED');
           }
