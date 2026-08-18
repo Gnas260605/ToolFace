@@ -315,35 +315,48 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
           associatedData: `${workspaceId}:${pageConn.pageId}`,
         });
 
-        const postMessage = `${draftRes.data.headline}\n\n${draftRes.data.body}\n\n${(draftRes.data.hashtags || []).join(' ')}`;
+        // Build full formatted post content
+        const hook = draftRes.data.hook ? `${draftRes.data.hook}\n\n` : '';
+        const whyItMatters = draftRes.data.whyItMatters ? `\n\n💡 ${draftRes.data.whyItMatters}` : '';
+        const hashtags = (draftRes.data.hashtags || []).length > 0 ? `\n\n${(draftRes.data.hashtags || []).join(' ')}` : '';
+        const postMessage = `${draftRes.data.headline}\n\n${hook}${draftRes.data.body}${whyItMatters}${hashtags}`.trim();
+        const commentLink = `👉 Đọc chi tiết: ${candidate.canonicalUrl}`;
         let pubResult: any;
 
-        if (policy.autoPublishPostType === 'COMMENT_LINK') {
+        // Always publish as COMMENT_LINK: full text content + source link in first comment
+        // This prevents Facebook from overriding our post with the source article's og:image
+        const postType = (policy.autoPublishPostType || 'COMMENT_LINK') as string;
+        if (postType === 'TEXT') {
           pubResult = await fb.publishTextPost({
             pageAccessToken: pageToken,
             pageId: pageConn.pageId,
             message: postMessage,
           });
-          if (pubResult.success && pubResult.facebookPostId) {
-            await fb.publishComment({
-              pageAccessToken: pageToken,
-              postId: pubResult.facebookPostId,
-              message: `👉 Đọc chi tiết bài viết tại: ${candidate.canonicalUrl}`,
-            });
-          }
-        } else if (policy.autoPublishPostType === 'TEXT') {
-          pubResult = await fb.publishTextPost({
-            pageAccessToken: pageToken,
-            pageId: pageConn.pageId,
-            message: postMessage,
-          });
-        } else {
+        } else if (postType === 'LINK') {
           pubResult = await fb.publishLinkPost({
             pageAccessToken: pageToken,
             pageId: pageConn.pageId,
             message: postMessage,
             link: candidate.canonicalUrl,
           });
+        } else {
+          // COMMENT_LINK (default) — text post + link pinned in first comment
+          pubResult = await fb.publishTextPost({
+            pageAccessToken: pageToken,
+            pageId: pageConn.pageId,
+            message: postMessage,
+          });
+          if (pubResult.success && pubResult.facebookPostId) {
+            try {
+              await fb.publishComment({
+                pageAccessToken: pageToken,
+                postId: pubResult.facebookPostId,
+                message: commentLink,
+              });
+            } catch (commentErr: any) {
+              this.logger.warn(`[AUTOPILOT] Could not post comment link: ${commentErr.message}`, 'AutoPilot');
+            }
+          }
         }
 
         if (pubResult.success) {
