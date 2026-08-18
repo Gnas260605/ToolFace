@@ -5,52 +5,96 @@ import { z } from 'zod';
 // ============================================================================
 
 export const SourceClaimSchema = z.object({
-  claimId: z.string(),
+  claimId: z.string().default(() => `claim-${Date.now()}`),
   text: z.string(),
-  sourceArticleId: z.string(),
-  evidenceExcerpt: z.string(),
-  confidence: z.number().min(0).max(1),
-  status: z.enum(['CONFIRMED', 'CONFLICTING', 'UNCERTAIN']),
+  sourceArticleId: z.string().default(''),
+  evidenceExcerpt: z.string().default(''),
+  confidence: z.number().min(0).max(1).default(0.9),
+  status: z.enum(['CONFIRMED', 'CONFLICTING', 'UNCERTAIN']).default('CONFIRMED'),
 });
 
-export const EntitySchema = z.object({
-  type: z.enum(['PERSON', 'TEAM', 'ORGANIZATION', 'LOCATION', 'COMPETITION', 'EVENT', 'GROUP', 'OTHER', 'CONCEPT', 'PRODUCT']).catch('ORGANIZATION'),
-  canonicalName: z.string(),
-  aliases: z.array(z.string()).default([]),
-});
+export const EntitySchema = z.union([
+  z.object({
+    type: z.enum(['PERSON', 'TEAM', 'ORGANIZATION', 'LOCATION', 'COMPETITION', 'EVENT', 'GROUP', 'OTHER', 'CONCEPT', 'PRODUCT']).catch('ORGANIZATION'),
+    canonicalName: z.string(),
+    aliases: z.array(z.string()).default([]),
+  }),
+  z.string().transform((name) => ({
+    type: 'ORGANIZATION' as const,
+    canonicalName: name,
+    aliases: [],
+  })),
+]);
 
-export const DateFactSchema = z.object({
-  value: z.string(),
-  context: z.string(),
-  sourceArticleIds: z.array(z.string()),
-  confidence: z.number().min(0).max(1),
-});
+export const DateFactSchema = z.union([
+  z.object({
+    value: z.union([z.string(), z.number().transform((n) => String(n))]),
+    context: z.string().default(''),
+    sourceArticleIds: z.array(z.string()).default([]),
+    confidence: z.number().min(0).max(1).default(0.9),
+  }),
+  z.string().transform((val) => ({
+    value: val,
+    context: '',
+    sourceArticleIds: [],
+    confidence: 0.9,
+  })),
+]);
 
-export const NumberFactSchema = z.object({
-  value: z.string(),
-  unit: z.string().optional(),
-  context: z.string(),
-  sourceArticleIds: z.array(z.string()),
-  confidence: z.number().min(0).max(1),
-});
+export const NumberFactSchema = z.union([
+  z.object({
+    value: z.union([z.string(), z.number().transform((n) => String(n))]),
+    unit: z.string().optional(),
+    context: z.string().default(''),
+    sourceArticleIds: z.array(z.string()).default([]),
+    confidence: z.number().min(0).max(1).default(0.9),
+  }),
+  z.union([z.string(), z.number()]).transform((val) => ({
+    value: String(val),
+    unit: undefined,
+    context: '',
+    sourceArticleIds: [],
+    confidence: 0.9,
+  })),
+]);
 
-export const ScoreFactSchema = z.object({
-  homeTeam: z.string().optional(),
-  awayTeam: z.string().optional(),
-  homeScore: z.number().optional(),
-  awayScore: z.number().optional(),
-  rawText: z.string(),
-  sourceArticleIds: z.array(z.string()),
-  confidence: z.number().min(0).max(1),
-});
+export const ScoreFactSchema = z.union([
+  z.object({
+    homeTeam: z.string().optional(),
+    awayTeam: z.string().optional(),
+    homeScore: z.number().optional(),
+    awayScore: z.number().optional(),
+    rawText: z.string().default(''),
+    sourceArticleIds: z.array(z.string()).default([]),
+    confidence: z.number().min(0).max(1).default(0.9),
+  }),
+  z.string().transform((raw) => ({
+    homeTeam: undefined,
+    awayTeam: undefined,
+    homeScore: undefined,
+    awayScore: undefined,
+    rawText: raw,
+    sourceArticleIds: [],
+    confidence: 0.9,
+  })),
+]);
 
-export const QuoteFactSchema = z.object({
-  text: z.string(),
-  speaker: z.string(),
-  sourceArticleId: z.string(),
-  evidenceExcerpt: z.string(),
-  confidence: z.number().min(0).max(1),
-});
+export const QuoteFactSchema = z.union([
+  z.object({
+    text: z.string(),
+    speaker: z.string().default('unknown'),
+    sourceArticleId: z.string().default(''),
+    evidenceExcerpt: z.string().default(''),
+    confidence: z.number().min(0).max(1).default(0.9),
+  }),
+  z.string().transform((text) => ({
+    text,
+    speaker: 'unknown',
+    sourceArticleId: '',
+    evidenceExcerpt: text,
+    confidence: 0.9,
+  })),
+]);
 
 export const ConflictSchema = z.object({
   field: z.string(),
