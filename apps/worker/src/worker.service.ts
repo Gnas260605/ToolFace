@@ -161,11 +161,13 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
         });
         const publishedArticleIds = publishedDrafts.map((d) => d.primaryArticleId).filter(Boolean);
 
-        // 3. Tìm bài viết Viral cao nhất chưa xuất bản
+        // 3. Tìm bài viết Viral cao nhất chưa xuất bản — chỉ lấy tin trong vòng 48 giờ qua
+        const freshnessCutoff = new Date(Date.now() - 48 * 60 * 60 * 1000); // 48 giờ
         const candidate = await (this.db.article as any).findFirst({
           where: {
             workspaceId,
             archivedAt: null,
+            publishedAt: { gte: freshnessCutoff },
             id: { notIn: publishedArticleIds as string[] },
           },
           orderBy: [
@@ -173,6 +175,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
             { publishedAt: 'desc' },
           ],
         });
+
 
         if (!candidate) continue;
 
