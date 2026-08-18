@@ -89,7 +89,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
 
   private async runAutoPilotScheduler() {
     try {
-      const activePolicies = await this.db.editorialPolicy.findMany({
+      const activePolicies = await (this.db.editorialPolicy as any).findMany({
         where: {
           autoPilotEnabled: true,
           autoPublishTargetPageId: { not: null },
@@ -109,7 +109,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
         const workspaceId = policy.workspaceId;
 
         // 1. Chấm điểm viral cho các bài mới chưa có điểm (batch 20 bài)
-        const unscoredArticles = await this.db.article.findMany({
+        const unscoredArticles = await (this.db.article as any).findMany({
           where: { workspaceId, viralScore: null, archivedAt: null },
           orderBy: { publishedAt: 'desc' },
           take: 20,
@@ -134,7 +134,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
             });
 
             for (const item of aiScoreResult.data) {
-              await this.db.article.update({
+              await (this.db.article as any).update({
                 where: { id: item.id },
                 data: {
                   viralScore: item.score,
@@ -162,7 +162,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
         const publishedArticleIds = publishedDrafts.map((d) => d.primaryArticleId).filter(Boolean);
 
         // 3. Tìm bài viết Viral cao nhất chưa xuất bản
-        const candidate = await this.db.article.findFirst({
+        const candidate = await (this.db.article as any).findFirst({
           where: {
             workspaceId,
             archivedAt: null,
