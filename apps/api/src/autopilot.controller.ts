@@ -115,19 +115,23 @@ export class AutoPilotController {
     const latestArticle = await this.p.article.findFirst({
       where: {
         workspaceId,
-        drafts: { none: {} },
+        archivedAt: null,
       },
-      orderBy: { publishedAt: 'desc' },
+      orderBy: [
+        { viralScore: 'desc' },
+        { publishedAt: 'desc' },
+      ],
     });
 
     if (!latestArticle) {
-      return { success: true, message: 'Tất cả bài viết hiện tại đã được tạo bản nháp / xuất bản' };
+      return { success: true, message: 'Chưa có bài viết nào trong luồng tin tức' };
     }
 
     return {
       success: true,
-      message: `Đã tìm thấy bài viết "${latestArticle.title}" để đưa vào luồng Tự động hóa Auto-Pilot`,
+      message: `Đã chọn bài viết có điểm Viral cao nhất: "${latestArticle.title}" (Viral Score: ${latestArticle.viralScore || 'Chưa chấm'}/100) để đưa vào luồng Tự động hóa Auto-Pilot`,
       articleId: latestArticle.id,
+      viralScore: latestArticle.viralScore,
       brandProfileId: defaultBrand.id,
     };
   }

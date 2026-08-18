@@ -13,6 +13,9 @@ import {
   FactSheetSchema,
   GeneratedDraftSchema,
   DraftVerificationResultSchema,
+  ViralScoreItem,
+  ViralScoringInput,
+  ViralScoreResultSchema,
 } from './ai-provider.interface';
 
 export class GeminiAiProvider implements AiProvider {
@@ -97,19 +100,27 @@ export class GeminiAiProvider implements AiProvider {
           try {
             parsed = JSON.parse(text);
             if (Array.isArray(parsed)) {
-              parsed = { sourceClaims: parsed };
-            }
-            if (parsed && typeof parsed === 'object') {
-              if (parsed.draft && typeof parsed.draft === 'object') parsed = parsed.draft;
-              if (parsed.data && typeof parsed.data === 'object') parsed = parsed.data;
-              if (parsed.facts && typeof parsed.facts === 'object') parsed = parsed.facts;
-
-              if (!parsed.headline && parsed.title) parsed.headline = String(parsed.title);
-              if (!parsed.hook && (parsed.summary || parsed.intro || parsed.lead)) {
-                parsed.hook = String(parsed.summary || parsed.intro || parsed.lead);
+              if (parsed.length > 0 && parsed[0]?.score !== undefined) {
+                // Keep as array for viral scoring
+              } else if (parsed.length > 0 && parsed[0]?.claimId !== undefined) {
+                parsed = { sourceClaims: parsed };
               }
-              if (!parsed.body && (parsed.content || parsed.text || parsed.article)) {
-                parsed.body = String(parsed.content || parsed.text || parsed.article);
+            } else if (parsed && typeof parsed === 'object') {
+              if (Array.isArray(parsed.articles)) parsed = parsed.articles;
+              else if (Array.isArray(parsed.data)) parsed = parsed.data;
+              else if (Array.isArray(parsed.results)) parsed = parsed.results;
+              else {
+                if (parsed.draft && typeof parsed.draft === 'object') parsed = parsed.draft;
+                if (parsed.data && typeof parsed.data === 'object') parsed = parsed.data;
+                if (parsed.facts && typeof parsed.facts === 'object') parsed = parsed.facts;
+
+                if (!parsed.headline && parsed.title) parsed.headline = String(parsed.title);
+                if (!parsed.hook && (parsed.summary || parsed.intro || parsed.lead)) {
+                  parsed.hook = String(parsed.summary || parsed.intro || parsed.lead);
+                }
+                if (!parsed.body && (parsed.content || parsed.text || parsed.article)) {
+                  parsed.body = String(parsed.content || parsed.text || parsed.article);
+                }
               }
             }
           } catch {
@@ -154,21 +165,36 @@ export class GeminiAiProvider implements AiProvider {
     context: AiRequestContext
   ): Promise<AiResult<FactSheet>> {
     const startTime = Date.now();
-    const systemPrompt = `You are a professional fact-checker AI. Extract all verifiable facts, claims, entities, dates, numbers, quotes, and scores from the provided articles.
-Return ONLY valid JSON matching this exact structure:
+    const systemPrompt = `You are a professional fact-checking journalist assistant. Extract atomic, verified facts and named entities from the provided news source articles into structured JSON.
+Strictly ensure that all extracted claims and facts are directly supported by evidence excerpts from the sources.
+Return ONLY valid JSON matching this structure:
 {
-  "articleIds": ["string"],
-  "sourceClaims": [{"claimId": "string", "text": "string", "sourceArticleId": "string", "evidenceExcerpt": "string", "confidence": 0.9, "status": "CONFIRMED"}],
-  "entities": [{"canonicalName": "string", "type": "PERSON", "aliases": []}],
-  "dates": [{"value": "string", "context": "string", "sourceArticleIds": ["string"], "confidence": 0.9}],
-  "numbers": [{"value": "string", "unit": "string", "context": "string", "sourceArticleIds": ["string"], "confidence": 0.9}],
+  "sourceClaims": [
+    {
+      "claimId": "claim-1",
+      "text": "statement",
+      "sourceArticleId": "article-id",
+      "evidenceExcerpt": "exact quote or paraphrased sentence",
+      "confidence": 0.95,
+      "status": "CONFIRMED"
+    }
+  ],
+  "entities": [
+    {
+      "type": "PERSON" | "ORGANIZATION" | "LOCATION" | "EVENT" | "GROUP" | "OTHER",
+      "canonicalName": "Name",
+      "aliases": []
+    }
+  ],
+  "dates": [],
+  "numbers": [],
   "scores": [],
   "quotes": [],
   "conflicts": [],
   "uncertaintyFlags": []
 }`;
 
-    const prompt = `Articles to analyze:\n${JSON.stringify(input.sources, null, 2)}`;
+    const prompt = `Source Articles:\n${JSON.stringify(input.sources, null, 2)}`;
     const result = await this.callGemini<FactSheet>(
       prompt,
       systemPrompt,
@@ -194,25 +220,28 @@ Return ONLY valid JSON matching this exact structure:
     context: AiRequestContext
   ): Promise<AiResult<GeneratedDraft>> {
     const startTime = Date.now();
-    const systemPrompt = `You are an expert social media copywriter. Generate a high-engaging post in Vietnamese based strictly on the provided factsheet.
-Return ONLY valid JSON matching this exact structure:
+    const systemPrompt = `You are an elite Facebook content writer and social media journalist. Rewrite the given fact sheet into an engaging, viral, high-converting Facebook post following the brand rules and persona.
+Tone: ${input.brandRules.tone}. Audience: ${input.brandRules.audience}.
+Writing rules: ${input.brandRules.writingRules.join('; ')}.
+Forbidden words: ${input.brandRules.forbiddenPhrases.join(', ')}.
+Default hashtags: ${input.brandRules.defaultHashtags.join(' ')}.
+Headline style: ${input.brandRules.headlineStyle}. Emoji policy: ${input.brandRules.emojiPolicy}.
+Return ONLY valid JSON matching this structure:
 {
-  "language": "vi",
-  "headline": "Tiêu đề hấp dẫn",
-  "hook": "Mở đầu lôi cuốn thu hút người đọc",
-  "body": "Nội dung bài viết chi tiết dựa trên tin tức thực tế...",
-  "whyItMatters": "Tại sao tin này quan trọng",
-  "discussionQuestion": "Câu hỏi thảo luận cho độc giả?",
-  "hashtags": ["TinTuc", "NoiBat"],
-  "attributionLine": "Nguồn: Tổng hợp",
-  "recommendedLink": "",
-  "contentType": "SUMMARY",
-  "sourceClaimIds": [],
+  "headline": "Catchy post title",
+  "hook": "Strong engaging opening hook line",
+  "body": "Clear, informative, engaging body text",
+  "whyItMatters": "Why reader should care",
+  "discussionQuestion": "Question to provoke comments",
+  "hashtags": ["#Tag1", "#Tag2"],
+  "attributionLine": "Nguồn: ...",
+  "recommendedLink": "...",
+  "contentType": "BREAKING" | "SUMMARY" | "ANALYSIS" | "DISCUSSION",
   "riskFlags": [],
-  "confidence": 0.95
+  "sourceClaimIds": []
 }`;
 
-    const prompt = `FactSheet:\n${JSON.stringify(input.factSheet, null, 2)}\n\nBrand Rules:\n${JSON.stringify(input.brandRules, null, 2)}`;
+    const prompt = `FactSheet:\n${JSON.stringify(input.factSheet, null, 2)}`;
     const result = await this.callGemini<GeneratedDraft>(
       prompt,
       systemPrompt,
@@ -260,6 +289,63 @@ Return ONLY valid JSON matching this exact structure:
       systemPrompt,
       'gemini-2.5-flash',
       DraftVerificationResultSchema,
+      context
+    );
+
+    return {
+      data: result.data,
+      provider: 'gemini',
+      model: 'gemini-2.5-flash',
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      estimatedCostMinor: 0,
+      currency: 'USD',
+      durationMs: Date.now() - startTime,
+    };
+  }
+
+  async scoreViralPotential(
+    input: ViralScoringInput,
+    context: AiRequestContext
+  ): Promise<AiResult<ViralScoreItem[]>> {
+    const startTime = Date.now();
+    const systemPrompt = `Bạn là chuyên gia social media growth tại Việt Nam, chuyên chọn tin để đăng Facebook đạt tương tác cao nhất.
+
+Dưới đây là danh sách bài viết (tiêu đề + tóm tắt + nguồn + thời gian đăng). 
+Hãy chấm điểm TỪNG bài theo thang 0-100 dựa trên khả năng viral trên Facebook Việt Nam, dựa vào các tiêu chí sau (trọng số):
+
+1. Tính thời sự / độ mới (25%): bài càng gần với sự kiện đang diễn ra càng cao điểm
+2. Kích hoạt cảm xúc mạnh (25%): sốc, bất ngờ, cảm động, tức giận, tò mò — cảm xúc càng mạnh càng dễ share
+3. Mức độ liên quan đến xu hướng hiện tại (20%): trùng với chủ đề đang hot trên mạng xã hội VN
+4. Tính đại chúng / dễ hiểu (15%): không cần kiến thức chuyên sâu để hiểu và bình luận
+5. Khả năng gây tranh luận/bình luận (15%): có góc nhìn trái chiều, chủ đề dễ tranh cãi nhưng không nhạy cảm chính trị/tôn giáo
+
+Với mỗi bài, trả về CHÍNH XÁC định dạng mảng JSON sau, KHÔNG thêm text nào khác ngoài JSON:
+
+[
+  {
+    "id": "<id bài viết>",
+    "score": <số nguyên 0-100>,
+    "reason": "<lý do ngắn gọn 1 câu>",
+    "category": "<xã hội|giải trí|đời sống|công nghệ|thể thao|khác>"
+  }
+]`;
+
+    const articlesPayload = input.articles.map((a) => ({
+      id: a.id,
+      title: a.title,
+      summary: a.summary || '',
+      source: a.sourceName || '',
+      publishedAt: a.publishedAt ? new Date(a.publishedAt).toISOString() : '',
+    }));
+
+    const prompt = `Danh sách bài viết:\n${JSON.stringify(articlesPayload, null, 2)}`;
+
+    const result = await this.callGemini<ViralScoreItem[]>(
+      prompt,
+      systemPrompt,
+      'gemini-2.5-flash',
+      ViralScoreResultSchema,
       context
     );
 

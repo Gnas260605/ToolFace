@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Post,
+  Body,
   Param,
   Query,
   UseGuards,
@@ -10,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { DatabaseService } from './common/database.service';
 import { JwtAuthGuard, PermissionsGuard, RequirePermissions } from './common/auth.guard';
+import { GeminiAiProvider, calculateHash } from '@newsflow/database';
 
 type ArticleRiskLevel = 'LOW' | 'MEDIUM' | 'HIGH';
 type ClusterStatus = 'ACTIVE' | 'CLOSED' | 'ARCHIVED';
@@ -265,5 +267,85 @@ export class ArticlesController {
     }
 
     return cluster;
+  }
+
+  @Post('articles/score-viral')
+  @RequirePermissions('articles.read')
+  async scoreBatchViral(
+    @Param('workspaceId') workspaceId: string,
+    @Body() body?: { limit?: number; articleIds?: string[] }
+  ): Promise<any> {
+    const limit = body?.limit || 20;
+    const where: any = { workspaceId, archivedAt: null };
+    if (body?.articleIds && body.articleIds.length > 0) {
+      where.id = { in: body.articleIds };
+    }
+
+    const articles = await this.db.article.findMany({
+      where,
+      orderBy: { publishedAt: 'desc' },
+      take: limit,
+      include: { source: { select: { name: true } } },
+    });
+
+    if (articles.length === 0) {
+      return { success: true, count: 0, items: [] };
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.split(',')[0] : '';
+    const gemini = new GeminiAiProvider(apiKey);
+
+    const input = {
+      articles: articles.map((a: any) => ({
+        id: a.id,
+        title: a.title,
+        summary: a.summary || a.contentExcerpt,
+        sourceName: a.source?.name,
+        publishedAt: a.publishedAt,
+      })),
+    };
+
+    const aiResult = await gemini.scoreViralPotential(input, {
+      workspaceId,
+      correlationId: `viral-${Date.now()}`,
+      idempotencyKey: `viral-${Date.now()}`,
+      timeoutMs: 60000,
+    });
+
+    // Update in database
+    for (const item of aiResult.data) {
+      await this.db.article.update({
+        where: { id: item.id },
+        data: {
+          viralScore: item.score,
+          viralReason: item.reason,
+          viralCategory: item.category,
+        },
+      });
+    }
+
+    // Log AI Usage
+    await this.db.aiUsageEvent.create({
+      data: {
+        workspaceId,
+        userId: 'SYSTEM',
+        taskType: 'FACT_EXTRACTION',
+        provider: 'gemini',
+        model: aiResult.model,
+        inputTokens: aiResult.inputTokens,
+        outputTokens: aiResult.outputTokens,
+        estimatedCostMinor: aiResult.estimatedCostMinor,
+        requestHash: calculateHash(JSON.stringify(input.articles.map((a: any) => a.id))),
+        status: 'SUCCESS',
+        durationMs: aiResult.durationMs,
+        occurredAt: new Date(),
+      },
+    });
+
+    return {
+      success: true,
+      count: aiResult.data.length,
+      items: aiResult.data,
+    };
   }
 }

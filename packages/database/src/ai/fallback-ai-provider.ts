@@ -9,6 +9,8 @@ import {
   FactExtractionInput,
   DraftGenerationInput,
   DraftVerificationInput,
+  ViralScoringInput,
+  ViralScoreItem,
 } from './ai-provider.interface';
 import { GeminiAiProvider } from './gemini-ai-provider';
 import { OpenAiProvider } from './openai-ai-provider';
@@ -138,5 +140,26 @@ export class FallbackAiProvider implements AiProvider {
       }
     }
     throw new Error(`All AI providers failed. Last error: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
+  }
+
+  async scoreViralPotential(input: ViralScoringInput, context: AiRequestContext): Promise<AiResult<ViralScoreItem[]>> {
+    let lastError: unknown = null;
+    const ordered = await this.getOrderedProviders(context);
+    for (const { type, provider: defaultProvider } of ordered) {
+      try {
+        const provider = await this.getProviderForType(type, context, defaultProvider);
+        if (provider.scoreViralPotential) {
+          const result = await provider.scoreViralPotential(input, context);
+          return {
+            ...result,
+            provider: type,
+          };
+        }
+      } catch (err) {
+        console.error(`[FallbackAiProvider] scoreViralPotential error in ${type}:`, err);
+        lastError = err;
+      }
+    }
+    throw new Error(`All AI providers failed to score viral potential. Last error: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
   }
 }

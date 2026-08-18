@@ -205,6 +205,26 @@ export type DraftVerificationInput = {
   generatedDraft: GeneratedDraft;
 };
 
+export const ViralScoreItemSchema = z.object({
+  id: z.string(),
+  score: z.number().min(0).max(100),
+  reason: z.string(),
+  category: z.string().default('khác'),
+});
+
+export const ViralScoreResultSchema = z.array(ViralScoreItemSchema);
+export type ViralScoreItem = z.infer<typeof ViralScoreItemSchema>;
+
+export type ViralScoringInput = {
+  articles: Array<{
+    id: string;
+    title: string;
+    summary?: string | null;
+    sourceName?: string | null;
+    publishedAt?: string | Date | null;
+  }>;
+};
+
 // ============================================================================
 // 4. AiProvider Interface
 // ============================================================================
@@ -224,4 +244,9 @@ export interface AiProvider {
     input: DraftVerificationInput,
     context: AiRequestContext
   ): Promise<AiResult<DraftVerificationResult>>;
+
+  scoreViralPotential?(
+    input: ViralScoringInput,
+    context: AiRequestContext
+  ): Promise<AiResult<ViralScoreItem[]>>;
 }

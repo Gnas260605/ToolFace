@@ -66,6 +66,9 @@ interface Article {
   author?: string | null;
   riskLevel?: string;
   extractionStatus?: string;
+  viralScore?: number | null;
+  viralReason?: string | null;
+  viralCategory?: string | null;
   source: ArticleSource;
   clusterArticles?: Array<{
     similarityScore: number;
@@ -215,6 +218,33 @@ export default function WorkspaceArticlesPage() {
     }
   };
 
+  const [scoringViral, setScoringViral] = useState(false);
+
+  const handleScoreViralBatch = async () => {
+    setScoringViral(true);
+    try {
+      const res = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceSlug}/articles/score-viral`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': role,
+          'x-workspace-id': workspaceSlug,
+          'x-user-id': 'mock-default-user-id',
+        },
+        body: JSON.stringify({ limit: 20 }),
+      });
+      if (!res.ok) {
+        const msg = await parseResponseError(res, 'Chấm điểm viral thất bại');
+        throw new Error(msg);
+      }
+      await fetchArticles();
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setScoringViral(false);
+    }
+  };
+
   const isReadonly = role === 'VIEWER';
 
   return (
@@ -227,18 +257,39 @@ export default function WorkspaceArticlesPage() {
           <p className="text-xs text-zinc-500 mt-1">Danh sách tin tức tự động bóc tách từ các trang báo & RSS feed.</p>
         </div>
 
-        {/* Role Switcher */}
-        <div className="flex items-center space-x-2 bg-surface-raised border border-zinc-800/60 rounded-xl px-3 py-1.5 self-start md:self-auto">
-          <span className="text-[10px] uppercase font-bold text-zinc-500">Vai trò:</span>
-          <select
-            value={role}
-            onChange={(e) => setRole(e.target.value as any)}
-            className="bg-transparent text-xs font-semibold text-accent-400 focus:outline-none cursor-pointer"
+        <div className="flex flex-wrap items-center gap-3 self-start md:self-auto">
+          {/* Viral Scoring Button */}
+          <button
+            onClick={handleScoreViralBatch}
+            disabled={scoringViral}
+            className="px-3.5 py-1.5 bg-gradient-to-r from-amber-500 via-orange-500 to-rose-600 hover:from-amber-400 hover:to-rose-500 text-white rounded-xl text-xs font-bold transition shadow-md shadow-rose-950/40 disabled:opacity-50 flex items-center gap-1.5"
           >
-            <option value="OWNER">OWNER (Quản trị)</option>
-            <option value="EDITOR">EDITOR (Biên tập)</option>
-            <option value="VIEWER">VIEWER (Chỉ xem)</option>
-          </select>
+            {scoringViral ? (
+              <>
+                <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <span>Đang chấm điểm AI...</span>
+              </>
+            ) : (
+              <>
+                <span>🔥</span>
+                <span>Chấm Điểm Viral (AI)</span>
+              </>
+            )}
+          </button>
+
+          {/* Role Switcher */}
+          <div className="flex items-center space-x-2 bg-surface-raised border border-zinc-800/60 rounded-xl px-3 py-1.5">
+            <span className="text-[10px] uppercase font-bold text-zinc-500">Vai trò:</span>
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value as any)}
+              className="bg-transparent text-xs font-semibold text-accent-400 focus:outline-none cursor-pointer"
+            >
+              <option value="OWNER">OWNER (Quản trị)</option>
+              <option value="EDITOR">EDITOR (Biên tập)</option>
+              <option value="VIEWER">VIEWER (Chỉ xem)</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -343,6 +394,22 @@ export default function WorkspaceArticlesPage() {
                     <div className="space-y-2 flex-1">
                       {/* Meta badges */}
                       <div className="flex flex-wrap items-center gap-2">
+                        {article.viralScore !== null && article.viralScore !== undefined && (
+                          <span
+                            className={`px-2.5 py-0.5 rounded text-[10px] font-bold border flex items-center gap-1 ${
+                              article.viralScore >= 80
+                                ? 'bg-rose-950/50 text-rose-300 border-rose-500/50 shadow-sm shadow-rose-950/50'
+                                : article.viralScore >= 60
+                                ? 'bg-amber-950/50 text-amber-300 border-amber-500/50'
+                                : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                            }`}
+                            title={article.viralReason || ''}
+                          >
+                            <span>{article.viralScore >= 80 ? '🔥' : article.viralScore >= 60 ? '⚡' : '⭐'}</span>
+                            <span>Viral {article.viralScore}/100</span>
+                            {article.viralCategory && <span className="opacity-75 font-normal">({article.viralCategory})</span>}
+                          </span>
+                        )}
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-accent-500/10 text-accent-400 border border-accent-500/20">
                           {article.source.attributionName}
                         </span>
@@ -368,6 +435,14 @@ export default function WorkspaceArticlesPage() {
                       >
                         {decodeHtml(article.title)}
                       </h3>
+
+                      {/* Viral Reason Tip */}
+                      {article.viralReason && (
+                        <div className="p-2 rounded-lg bg-zinc-900/60 border border-zinc-800/80 text-[11px] text-zinc-400 flex items-start gap-1.5">
+                          <span className="text-amber-400 text-xs">💡</span>
+                          <span className="italic">{article.viralReason}</span>
+                        </div>
+                      )}
 
                       {/* Excerpt */}
                       <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed font-light">
