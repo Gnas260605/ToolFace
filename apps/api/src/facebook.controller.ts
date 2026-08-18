@@ -134,6 +134,11 @@ export class FacebookPagesController {
   /** Cast to `any` so IDE doesn't need to resolve Prisma generated types. Runtime is fine. */
   private get p(): any { return this.db; }
 
+  private getRequiredScopes(): string[] {
+    const raw = process.env.META_REQUIRED_SCOPES || 'pages_show_list,pages_manage_metadata,pages_manage_posts,pages_read_engagement';
+    return raw.split(',').map((scope) => scope.trim()).filter(Boolean);
+  }
+
   @Get('available-pages')
   @RequirePermissions('facebook_connections.manage')
   async listAvailablePages(
@@ -177,7 +182,7 @@ export class FacebookPagesController {
         pageCategory: body.category,
         status: 'ACTIVE',
         grantedTasksJson: body.grantedTasks,
-        grantedScopesJson: ['pages_manage_posts'],
+        grantedScopesJson: this.getRequiredScopes(),
         tokenCiphertext: encrypted.ciphertext,
         tokenIv: encrypted.iv,
         tokenAuthTag: encrypted.authTag,
@@ -203,7 +208,8 @@ export class FacebookPagesController {
     const pages = await this.p.facebookPageConnection.findMany({
       where: { workspaceId, deletedAt: null }
     });
-    return pages.map((page: any) => ({
+    
+    const result = pages.map((page: any) => ({
       id: page.id,
       pageId: page.pageId,
       pageName: page.pageName,
@@ -213,6 +219,24 @@ export class FacebookPagesController {
       lastValidatedAt: page.lastValidatedAt,
       requiresReauthorization: page.status === 'NEEDS_REAUTH'
     }));
+
+    if (process.env.FB_PAGE_ID) {
+      const alreadyHas = result.some((r: any) => r.pageId === process.env.FB_PAGE_ID);
+      if (!alreadyHas) {
+        result.unshift({
+          id: 'env-override-connection-id',
+          pageId: process.env.FB_PAGE_ID,
+          pageName: `Fanpage từ ENV (${process.env.FB_PAGE_ID})`,
+          category: 'Cấu hình hệ thống',
+          status: 'ACTIVE',
+          grantedScopes: this.getRequiredScopes(),
+          lastValidatedAt: new Date(),
+          requiresReauthorization: false
+        });
+      }
+    }
+
+    return result;
   }
 
   @Delete('pages/:connectionId')

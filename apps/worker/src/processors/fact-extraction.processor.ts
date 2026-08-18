@@ -70,7 +70,7 @@ export class FactExtractionProcessor extends WorkerHost {
       },
     });
 
-    if (cached) {
+    if (cached && !cached.provider.toLowerCase().includes('mock')) {
       this.logger.log(`Found valid cached fact sheet ${cached.id}, skipping AI call`, 'FactExtractionProcessor');
       return;
     }

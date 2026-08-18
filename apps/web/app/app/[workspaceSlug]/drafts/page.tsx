@@ -9,6 +9,17 @@ function getErrMsg(e: unknown): string {
   return String(e);
 }
 
+async function parseResponseError(res: Response, fallbackMsg: string): Promise<string> {
+  try {
+    const text = await res.text();
+    if (!text) return fallbackMsg;
+    const json = JSON.parse(text);
+    return json.message || json.error?.message || json.details?.message || fallbackMsg;
+  } catch (_e) {
+    return fallbackMsg;
+  }
+}
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
@@ -20,6 +31,7 @@ const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   DRAFT: { label: 'Bản nháp', className: 'bg-gray-800/40 text-gray-400 border-gray-700/20' },
   FACT_CHECK_RUNNING: { label: 'Đang kiểm tra dữ kiện', className: 'bg-purple-900/30 text-purple-400 border-purple-700/30' },
   FACT_CHECK_PASS: { label: 'Kiểm tra đạt', className: 'bg-emerald-900/20 text-emerald-500 border-emerald-700/20' },
+  GENERATION_FAILED: { label: 'Tạo thất bại', className: 'bg-rose-900/30 text-rose-400 border-rose-700/30' },
 };
 
 interface Draft {
@@ -71,6 +83,7 @@ export default function DraftsListPage() {
 
   useEffect(() => { load(); }, [load]);
 
+
   const handleCreate = async () => {
     setCreating(true);
     setError(null);
@@ -85,8 +98,8 @@ export default function DraftsListPage() {
         body: JSON.stringify({}),
       });
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message || 'Tạo bản nháp thất bại');
+        const msg = await parseResponseError(res, 'Tạo bản nháp thất bại');
+        throw new Error(msg);
       }
       const draft = await res.json();
       router.push(`/app/${workspaceId}/drafts/${draft.id}`);

@@ -12,6 +12,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  Allow,
   IsBoolean,
   IsIn,
   IsInt,
@@ -86,6 +87,7 @@ class WorkspaceSettingDto {
   @IsString()
   key!: string;
 
+  @Allow()
   value!: unknown;
 
   @IsOptional()

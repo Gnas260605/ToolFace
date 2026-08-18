@@ -6,9 +6,14 @@ set -e
 echo "=== Starting NewsFlow AI Production Deployment ==="
 
 # 1. Pull latest code
-echo ">>> Pulling latest changes from main branch..."
-git fetch origin
-git reset --hard origin/main
+if [ -d .git ]; then
+    echo ">>> Pulling latest changes from main branch..."
+    git fetch origin
+    git reset --hard origin/main
+else
+    echo ">>> No .git repository found. Skipping git pull, using uploaded files."
+fi
+
 
 # 2. Check for .env.prod file presence
 if [ ! -f .env.prod ]; then

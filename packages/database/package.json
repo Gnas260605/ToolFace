@@ -20,6 +20,7 @@
     "ipaddr.js": "^2.2.0",
     "jsdom": "^24.1.0",
     "normalize-url": "^6.1.0",
+    "openai": "^7.4.0",
     "prisma": "^5.22.0",
     "sanitize-html": "^2.13.0",
     "tldts": "^6.1.25",

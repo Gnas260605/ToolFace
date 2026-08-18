@@ -139,11 +139,24 @@ export class DraftsController {
 
     let brandProfileId = dto.brandProfileId;
     if (!brandProfileId) {
-      const defaultProfile = await this.p.brandProfile.findFirst({
+      let defaultProfile = await this.p.brandProfile.findFirst({
         where: { workspaceId, isDefault: true, deletedAt: null },
       });
       if (!defaultProfile) {
-        throw new BadRequestException('No default brand profile found. Please specify brandProfileId.');
+        defaultProfile = await this.p.brandProfile.findFirst({
+          where: { workspaceId, deletedAt: null },
+        });
+      }
+      if (!defaultProfile) {
+        defaultProfile = await this.p.brandProfile.create({
+          data: {
+            workspaceId,
+            name: 'Hồ sơ mặc định',
+            language: 'vi',
+            isDefault: true,
+            createdByUserId: creatorId,
+          },
+        });
       }
       brandProfileId = defaultProfile.id;
     } else {
@@ -153,8 +166,32 @@ export class DraftsController {
       if (!checkProfile) throw new BadRequestException('Brand profile not found in this workspace.');
     }
 
+    // Support manual draft creation when no article or cluster is provided
     if (!dto.articleId && !dto.clusterId) {
-      throw new BadRequestException('Either articleId or clusterId must be specified.');
+      const draft = await this.p.draft.create({
+        data: {
+          workspaceId,
+          brandProfileId,
+          status: DRAFT_STATUS.DRAFT,
+          createdByUserId: creatorId,
+          versions: {
+            create: {
+              versionNumber: 1,
+              headline: 'Bản nháp tin tức mới',
+              hook: 'Tóm tắt câu mở đầu thu hút...',
+              body: 'Nội dung bài viết trình bày chi tiết...',
+              whyItMatters: 'Tại sao độc giả cần quan tâm tin tức này?',
+              discussionQuestion: 'Bạn nghĩ sao về thông tin này?',
+              hashtagsJson: ['#TinTuc', '#Facebook'],
+              attributionLine: 'Theo ToolFace AI',
+              contentType: 'FACEBOOK_POST',
+              createdByPlain: 'Biên tập viên',
+            },
+          },
+        },
+        include: { versions: true },
+      });
+      return draft;
     }
 
     if (dto.articleId) {
@@ -563,4 +600,42 @@ export class DraftsController {
       data: { status: DRAFT_STATUS.ARCHIVED, archivedAt: new Date() },
     });
   }
+
+  // -------------------------------------------------------------------------
+  // POST /drafts/:id/retry — retry AI generation
+  // -------------------------------------------------------------------------
+  @Post(':id/retry')
+  @RequirePermissions('drafts.create')
+  async retry(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') id: string,
+    @Headers('x-user-id') userId: string,
+  ): Promise<any> {
+    const draft = await this.p.draft.findFirst({ where: { id, workspaceId } });
+    if (!draft) throw new NotFoundException('Draft not found');
+
+    const creatorId = userId || 'SYSTEM';
+
+    await this.p.draft.update({
+      where: { id: draft.id },
+      data: { status: DRAFT_STATUS.GENERATING },
+    });
+
+    const correlationId = `corr-retry-${draft.id}-${Date.now()}`;
+
+    await this.factQueue.add(
+      'extract',
+      { articleId: draft.primaryArticleId || undefined, clusterId: draft.clusterId || undefined, workspaceId, correlationId, userId: creatorId },
+      { jobId: `fact-ext-${draft.id}-${Date.now()}` },
+    );
+
+    await this.draftGenQueue.add(
+      'generate',
+      { draftId: draft.id, workspaceId, correlationId, userId: creatorId },
+      { jobId: `draft-gen-${draft.id}-${Date.now()}`, delay: 2000 },
+    );
+
+    return { status: DRAFT_STATUS.GENERATING, message: 'Đã gửi lại yêu cầu tạo bài với AI' };
+  }
 }
+

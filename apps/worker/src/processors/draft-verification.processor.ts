@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Processor, WorkerHost } from '@nestjs/bullmq';
-import { Job } from 'bullmq';
+import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq';
+import { Job, Queue } from 'bullmq';
 import { Injectable, Inject } from '@nestjs/common';
 import { DatabaseService } from '../common/database.service';
 import { JsonLogger } from '../common/logger.service';
@@ -21,6 +21,7 @@ export class DraftVerificationProcessor extends WorkerHost {
     @Inject(DatabaseService) private readonly db: DatabaseService,
     @Inject(JsonLogger) private readonly logger: JsonLogger,
     @Inject('AiProvider') private readonly ai: AiProvider,
+    @InjectQueue('facebook-publish') private readonly publishQueue: Queue,
   ) {
     super();
     this.verifier = new DeterministicVerifier();
@@ -104,11 +105,11 @@ export class DraftVerificationProcessor extends WorkerHost {
       headline: draftVersion.headline,
       hook: draftVersion.hook,
       body: draftVersion.body,
-      whyItMatters: draftVersion.whyItMatters,
-      discussionQuestion: draftVersion.discussionQuestion || undefined,
+      whyItMatters: draftVersion.whyItMatters || '',
+      discussionQuestion: draftVersion.discussionQuestion || '',
       hashtags: draftVersion.hashtagsJson as string[],
       attributionLine: draftVersion.attributionLine,
-      recommendedLink: draftVersion.recommendedLink || undefined,
+      recommendedLink: draftVersion.recommendedLink || '',
       contentType: draftVersion.contentType as any,
       sourceClaimIds: draftVersion.sourceClaimIdsJson as string[],
       riskFlags: draftVersion.riskFlagsJson as string[],
@@ -238,5 +239,120 @@ export class DraftVerificationProcessor extends WorkerHost {
     });
 
     this.logger.log(`Completed verification for draft ${draftId} version ${versionId}. Passed: ${finalResult.passed}`, 'DraftVerificationProcessor');
+
+    // 8. Auto-Approve Guardrail
+    if (finalResult.passed) {
+      let sourceTrust = 'MEDIUM';
+      if (draft.primaryArticleId) {
+        const article = await this.db.article.findFirst({
+          where: { id: draft.primaryArticleId, workspaceId },
+          include: { source: true },
+        });
+        if (article?.source) {
+          sourceTrust = article.source.trustLevel;
+        }
+      }
+
+      const isTrustedSource = ['OFFICIAL', 'HIGH'].includes(sourceTrust);
+      if (isTrustedSource) {
+        this.logger.log(`Auto-approving draft ${draftId} from trusted source (${sourceTrust})`, 'DraftVerificationProcessor');
+        
+        // Update draft status to APPROVED
+        await this.db.draft.update({
+          where: { id: draftId },
+          data: {
+            status: 'APPROVED',
+            approvedByUserId: 'SYSTEM',
+            approvedAt: new Date(),
+          },
+        });
+
+        // Record draft review approved
+        await this.db.draftReview.create({
+          data: {
+            workspaceId,
+            draftId,
+            draftVersionId: versionId,
+            reviewerUserId: 'SYSTEM',
+            decision: 'APPROVED',
+            comment: `Hệ thống tự động phê duyệt qua Guardrail (Độ tin cậy nguồn: ${sourceTrust}).`,
+          },
+        });
+
+        // Log audit
+        await this.db.auditLog.create({
+          data: {
+            workspaceId,
+            actorId: 'SYSTEM',
+            actorType: 'SYSTEM',
+            action: 'draft.approved.auto',
+            resource: 'draft',
+            resourceId: draftId,
+            correlationId,
+          },
+        });
+
+        // Auto-Publish
+        // Find active page connection
+        const activeConnection = await this.db.facebookPageConnection.findFirst({
+          where: { workspaceId, status: 'ACTIVE' },
+        });
+
+        const hasEnvOverride = !!(process.env.FB_PAGE_ID && process.env.FB_PAGE_ACCESS_TOKEN);
+        let resolvedPageConnectionId = activeConnection?.id;
+
+        if (!resolvedPageConnectionId && hasEnvOverride) {
+          const anyConnection = await this.db.facebookPageConnection.findFirst({
+            where: { workspaceId },
+          });
+          resolvedPageConnectionId = anyConnection?.id || 'env-override-connection-id';
+        }
+
+        if (resolvedPageConnectionId) {
+          const internalIdempotencyKey = `auto-pub-${workspaceId}-${resolvedPageConnectionId}-${draftId}-${versionId}-${Date.now()}`;
+          
+          // Create publish job transactionally
+          const publishJob = await this.db.publishJob.create({
+            data: {
+              workspaceId,
+              draftId,
+              draftVersionId: versionId,
+              pageConnectionId: resolvedPageConnectionId,
+              status: 'QUEUED',
+              publicationType: 'LINK',
+              messageSnapshot: draftVersion.body,
+              linkSnapshot: draftVersion.recommendedLink,
+              idempotencyKey: internalIdempotencyKey,
+              createdByUserId: 'SYSTEM',
+            },
+          });
+
+          // Enqueue to publish queue
+          await this.publishQueue.add(
+            'publish',
+            {
+              publishJobId: publishJob.id,
+              workspaceId,
+              correlationId: publishJob.id,
+              createdAt: publishJob.createdAt.toISOString(),
+            },
+            { 
+              jobId: publishJob.id,
+              attempts: 5,
+              backoff: {
+                type: 'exponential',
+                delay: 5000,
+              },
+            }
+          );
+
+          this.logger.log(`Enqueued auto-publish job ${publishJob.id} for draft ${draftId}`, 'DraftVerificationProcessor');
+        } else {
+          this.logger.warn(`Auto-approve succeeded for draft ${draftId} but no active Facebook Page Connection found for auto-publishing.`, 'DraftVerificationProcessor');
+        }
+      } else {
+        this.logger.log(`Draft ${draftId} passed verification but source trust level '${sourceTrust}' is not high enough for auto-approval. Rerouting to human review.`, 'DraftVerificationProcessor');
+      }
+    }
   }
 }

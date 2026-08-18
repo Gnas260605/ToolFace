@@ -145,19 +145,33 @@ enum ClusterStatus {
 }
 
 model StoryCluster {
-  id             String        @id @default(uuid())
-  workspaceId    String        @map("workspace_id")
-  canonicalTopic String        @map("canonical_topic")
-  category       String        @default("general")
-  startedAt      DateTime      @default(now()) @map("started_at")
-  lastArticleAt  DateTime      @default(now()) @map("last_article_at")
-  status         ClusterStatus @default(ACTIVE)
-  createdAt      DateTime      @default(now()) @map("created_at")
-  updatedAt      DateTime      @updatedAt @map("updated_at")
+  id                 String        @id @default(uuid())
+  workspaceId        String        @map("workspace_id")
+  canonicalTopic     String        @map("canonical_topic")
+  category           String        @default("general")
+  startedAt          DateTime      @default(now()) @map("started_at")
+  lastArticleAt      DateTime      @default(now()) @map("last_article_at")
+  status             ClusterStatus @default(ACTIVE)
+  trendScore         Float         @default(0.0) @map("trend_score")
+  trendExplanation   Json?         @map("trend_explanation")
+  sourceCount        Int           @default(1) @map("source_count")
+  velocity           Float         @default(0.0) @map("velocity")
+  engagement         Int           @default(0) @map("engagement")
+  reliabilityScore   Float         @default(1.0) @map("reliability_score")
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
 
   clusterArticles StoryClusterArticle[]
 
   @@map("story_clusters")
+}
+
+model ArticleEmbedding {
+  articleId  String   @id @map("article_id")
+  valuesJson Json     @map("values_json")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("article_embeddings")
 }
 
 model StoryClusterArticle {
@@ -1132,3 +1146,92 @@ model SystemAnnouncement {
   @@index([status, startsAt, endsAt])
   @@map("system_announcements")
 }
+
+model User {
+  id              String      @id @default(uuid())
+  email           String      @unique
+  passwordHash    String      @map("password_hash")
+  name            String
+  roleId          String      @map("role_id")
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+  deletedAt       DateTime?   @map("deleted_at")
+
+  role            Role        @relation(fields: [roleId], references: [id])
+
+  @@map("users")
+}
+
+model Role {
+  id            String       @id @default(uuid())
+  name          String       @unique
+  users         User[]
+  permissions   Permission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id            String   @id @default(uuid())
+  key           String   @unique
+  roles         Role[]
+
+  @@map("permissions")
+}
+
+model BlockedKeyword {
+  id            String   @id @default(uuid())
+  workspaceId   String   @map("workspace_id")
+  keyword       String
+  reason        String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([workspaceId, keyword])
+  @@map("blocked_keywords")
+}
+
+model PreferredKeyword {
+  id            String   @id @default(uuid())
+  workspaceId   String   @map("workspace_id")
+  keyword       String
+  weight        Float    @default(1.2)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([workspaceId, keyword])
+  @@map("preferred_keywords")
+}
+
+model MediaAsset {
+  id            String    @id @default(uuid())
+  workspaceId   String    @map("workspace_id")
+  draftId       String?   @map("draft_id")
+  fileName      String    @map("file_name")
+  fileUrl       String    @map("file_url")
+  thumbnailUrl  String?   @map("thumbnail_url")
+  width         Int
+  height        Int
+  aspectRatio   String    @map("aspect_ratio")
+  fileSize      Int       @map("file_size")
+  mimeType      String    @map("mime_type")
+  isAiGenerated Boolean   @default(false) @map("is_ai_generated")
+  altText       String?   @map("alt_text")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  licenses      ImageLicense[]
+
+  @@map("media_assets")
+}
+
+model ImageLicense {
+  id            String     @id @default(uuid())
+  mediaAssetId  String     @map("media_asset_id")
+  sourceType    String     @map("source_type")
+  licenseUrl    String?    @map("license_url")
+  attribution   String?
+  createdAt     DateTime   @default(now()) @map("created_at")
+
+  mediaAsset    MediaAsset @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
+
+  @@map("image_licenses")
+}
+

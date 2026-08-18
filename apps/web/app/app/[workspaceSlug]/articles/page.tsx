@@ -1,46 +1,65 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 
-interface SourceInfo {
+const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+
+async function parseResponseError(res: Response, fallbackMsg: string): Promise<string> {
+  try {
+    const text = await res.text();
+    if (!text) return fallbackMsg;
+    const json = JSON.parse(text);
+    return json.message || json.error?.message || json.details?.message || fallbackMsg;
+  } catch (_e) {
+    return fallbackMsg;
+  }
+}
+
+interface ArticleSource {
+  id: string;
   name: string;
   attributionName: string;
   domain: string;
-  trustLevel: string;
 }
 
 interface Article {
   id: string;
   title: string;
   summary: string | null;
-  author: string | null;
-  canonicalUrl: string;
-  originalUrl: string;
+  contentExcerpt: string | null;
   publishedAt: string;
   discoveredAt: string;
   category: string;
-  language: string;
-  imageUrl: string | null;
-  contentExcerpt: string | null;
-  riskLevel: string;
-  extractionStatus: string;
-  archivedAt: string | null;
-  source: SourceInfo;
+  originalUrl: string;
+  canonicalUrl: string;
+  imageUrl?: string | null;
+  author?: string | null;
+  riskLevel?: string;
+  extractionStatus?: string;
+  source: ArticleSource;
   clusterArticles?: Array<{
-    clusterId: string;
+    similarityScore: number;
     cluster: {
+      id: string;
       canonicalTopic: string;
+      clusterArticles?: Array<{
+        similarityScore: number;
+        article: {
+          id: string;
+          title: string;
+          canonicalUrl: string;
+        };
+      }>;
     };
   }>;
 }
 
-
-export default function ArticlesPage() {
+export default function WorkspaceArticlesPage() {
   const params = useParams();
+  const router = useRouter();
   const workspaceSlug = (params.workspaceSlug as string) || 'default-workspace';
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
   // Filters state
   const [sourcesList, setSourcesList] = useState<any[]>([]);
@@ -50,76 +69,87 @@ export default function ArticlesPage() {
   const [search, setSearch] = useState('');
   const [role, setRole] = useState<'OWNER' | 'EDITOR' | 'VIEWER'>('OWNER');
 
-  // Articles state
+  // List state
   const [articles, setArticles] = useState<Article[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
 
   // Detail Modal state
   const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null);
-  const [articleDetail, setArticleDetail] = useState<any | null>(null);
+  const [articleDetail, setArticleDetail] = useState<Article | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
-  // Fetch sources list for filtering
+  // Creating draft loading state
+  const [creatingDraftId, setCreatingDraftId] = useState<string | null>(null);
+
+  // Load sources list for filter dropdown
   useEffect(() => {
     fetch(`${apiUrl}/api/v1/workspaces/${workspaceSlug}/sources`, {
       headers: { 'x-user-role': role, 'x-workspace-id': workspaceSlug },
     })
       .then((res) => (res.ok ? res.json() : []))
-      .then((data) => setSourcesList(data))
-      .catch(() => {});
+      .then((data) => setSourcesList(Array.isArray(data) ? data : []))
+      .catch(() => setSourcesList([]));
   }, [workspaceSlug, role]);
 
-  // Fetch articles feed
-  const fetchArticles = async (cursorValue?: string, append = false) => {
-    setLoading(true);
-    try {
-      let url = `${apiUrl}/api/v1/workspaces/${workspaceSlug}/articles?limit=10`;
-      if (selectedSource) url += `&sourceId=${selectedSource}`;
-      if (selectedCategory) url += `&category=${selectedCategory}`;
-      if (selectedRisk) url += `&riskLevel=${selectedRisk}`;
-      if (search) url += `&search=${encodeURIComponent(search)}`;
-      if (cursorValue) url += `&cursor=${cursorValue}`;
-
-      const res = await fetch(url, {
-        headers: {
-          'x-user-role': role,
-          'x-workspace-id': workspaceSlug,
-        },
-      });
-
-      if (!res.ok) throw new Error('Không thể tải luồng tin tức');
-      const result = await res.json();
-
-      if (append) {
-        setArticles((prev) => [...prev, ...result.data]);
-      } else {
-        setArticles(result.data);
-      }
-      setNextCursor(result.nextCursor || null);
+  // Fetch Feed Articles
+  const fetchArticles = useCallback(
+    async (cursor?: string, append = false) => {
+      setLoading(true);
       setError(null);
-    } catch (e: any) {
-      setError(e.message || 'Có lỗi xảy ra');
-    } finally {
-      setLoading(false);
-    }
-  };
+      try {
+        const queryParams = new URLSearchParams();
+        if (selectedSource) queryParams.set('sourceId', selectedSource);
+        if (selectedCategory) queryParams.set('category', selectedCategory);
+        if (selectedRisk) queryParams.set('riskLevel', selectedRisk);
+        if (search) queryParams.set('q', search);
+        if (cursor) queryParams.set('cursor', cursor);
+
+        const res = await fetch(
+          `${apiUrl}/api/v1/workspaces/${workspaceSlug}/articles?${queryParams.toString()}`,
+          {
+            headers: { 'x-user-role': role, 'x-workspace-id': workspaceSlug },
+          }
+        );
+
+        if (!res.ok) {
+          const msg = await parseResponseError(res, 'Không thể tải danh sách bài viết');
+          throw new Error(msg);
+        }
+
+        const data = await res.json();
+        const items = Array.isArray(data) ? data : (data.data || data.items || []);
+        setArticles((prev) => (append ? [...prev, ...items] : items));
+        setNextCursor(data.nextCursor || null);
+      } catch (e: any) {
+        setError(e.message);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [workspaceSlug, selectedSource, selectedCategory, selectedRisk, search, role]
+  );
 
   useEffect(() => {
     fetchArticles();
-  }, [workspaceSlug, selectedSource, selectedCategory, selectedRisk, search, role]);
+  }, [fetchArticles]);
 
   // Fetch article detail
   const handleOpenDetail = async (id: string) => {
     setSelectedArticleId(id);
     setDetailLoading(true);
+    setArticleDetail(null);
     try {
       const res = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceSlug}/articles/${id}`, {
         headers: { 'x-user-role': role, 'x-workspace-id': workspaceSlug },
       });
-      if (!res.ok) throw new Error('Không thể tải chi tiết bài viết');
-      const data = await res.json();
+      if (!res.ok) {
+        const msg = await parseResponseError(res, 'Không thể tải chi tiết bài viết');
+        throw new Error(msg);
+      }
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : null;
       setArticleDetail(data);
     } catch (e: any) {
       alert(e.message);
@@ -129,43 +159,53 @@ export default function ArticlesPage() {
     }
   };
 
-  const handleArchive = async (id: string) => {
-    if (!confirm('Bạn có muốn lưu trữ (archive) bài viết này không?')) return;
+  const handleRewrite = async (id: string) => {
+    setCreatingDraftId(id);
     try {
-      const res = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceSlug}/articles/${id}/archive`, {
+      const res = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceSlug}/drafts`, {
         method: 'POST',
-        headers: { 'x-user-role': role, 'x-workspace-id': workspaceSlug },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': role,
+          'x-workspace-id': workspaceSlug,
+          'x-user-id': 'mock-default-user-id',
+        },
+        body: JSON.stringify({ articleId: id }),
       });
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.message || 'Lưu trữ thất bại');
+        const msg = await parseResponseError(res, 'Tạo bản nháp thất bại');
+        throw new Error(msg);
       }
-      alert('Đã chuyển bài viết vào thư mục lưu trữ.');
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : {};
       setSelectedArticleId(null);
-      fetchArticles();
+      // Redirect to the newly created draft details page
+      router.push(`/app/${workspaceSlug}/drafts/${data.id}`);
     } catch (e: any) {
       alert(e.message);
+      setCreatingDraftId(null);
     }
   };
 
   const isReadonly = role === 'VIEWER';
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* Header & Filter Controls */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-zinc-800/40 pb-5">
         <div>
-          <h1 className="font-display text-2xl font-bold text-white tracking-tight">Luồng tin tức</h1>
-          <p className="text-sm text-gray-400">Danh sách tin tức thu thập, làm sạch và gom nhóm theo chủ đề tự động.</p>
+          <p className="text-[10px] font-semibold tracking-[0.2em] uppercase text-accent-400">Tin Tức Thu Thập</p>
+          <h1 className="font-display italic text-2xl font-bold text-zinc-100 tracking-tight">Luồng tin tức</h1>
+          <p className="text-xs text-zinc-500 mt-1">Danh sách tin tức tự động bóc tách từ các trang báo & RSS feed.</p>
         </div>
 
         {/* Role Switcher */}
-        <div className="flex items-center space-x-2 bg-[#0a0f1d] border border-gray-800/40 rounded-xl px-3 py-1.5 align-self-start md:align-self-auto">
-          <span className="text-[10px] uppercase font-bold text-gray-500">Vai trò test:</span>
+        <div className="flex items-center space-x-2 bg-surface-raised border border-zinc-800/60 rounded-xl px-3 py-1.5 self-start md:self-auto">
+          <span className="text-[10px] uppercase font-bold text-zinc-500">Vai trò:</span>
           <select
             value={role}
             onChange={(e) => setRole(e.target.value as any)}
-            className="bg-transparent text-xs font-semibold text-brand-400 focus:outline-none cursor-pointer"
+            className="bg-transparent text-xs font-semibold text-accent-400 focus:outline-none cursor-pointer"
           >
             <option value="OWNER">OWNER (Quản trị)</option>
             <option value="EDITOR">EDITOR (Biên tập)</option>
@@ -174,66 +214,61 @@ export default function ArticlesPage() {
         </div>
       </div>
 
-      {/* Filter panel */}
-      <div className="p-5 rounded-2xl bg-[#0a0f1d]/40 border border-gray-800/40 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
-        {/* Search */}
+      {/* Filter Panel */}
+      <div className="p-4 rounded-xl bg-surface-raised border border-zinc-800/50 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
         <div className="space-y-1">
-          <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Tìm kiếm</label>
+          <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Tìm kiếm</label>
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Nhập tiêu đề..."
-            className="w-full px-3 py-2 rounded-xl bg-gray-900 border border-gray-800/60 text-xs focus:outline-none focus:border-brand-500 text-white"
+            placeholder="Nhập từ khóa tiêu đề..."
+            className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-xs focus:outline-none focus:border-accent-500 text-zinc-100 placeholder:text-zinc-600"
           />
         </div>
 
-        {/* Sources filter */}
         <div className="space-y-1">
-          <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Nguồn tin</label>
+          <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Nguồn tin</label>
           <select
             value={selectedSource}
             onChange={(e) => setSelectedSource(e.target.value)}
-            className="w-full px-3 py-2 rounded-xl bg-gray-900 border border-gray-800/60 text-xs focus:outline-none focus:border-brand-500 text-white"
+            className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-xs focus:outline-none focus:border-accent-500 text-zinc-100"
           >
-            <option value="">Tất cả</option>
+            <option value="">Tất cả nguồn tin</option>
             {sourcesList.map((s) => (
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
           </select>
         </div>
 
-        {/* Category filter */}
         <div className="space-y-1">
-          <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Chuyên mục</label>
+          <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Chuyên mục</label>
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="w-full px-3 py-2 rounded-xl bg-gray-900 border border-gray-800/60 text-xs focus:outline-none focus:border-brand-500 text-white"
+            className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-xs focus:outline-none focus:border-accent-500 text-zinc-100"
           >
-            <option value="">Tất cả</option>
-            <option value="football">Football / Bóng đá</option>
+            <option value="">Tất cả chuyên mục</option>
+            <option value="football">Bóng đá / Football</option>
             <option value="sports">Thể thao</option>
             <option value="general">Tổng hợp</option>
           </select>
         </div>
 
-        {/* Risk Filter */}
         <div className="space-y-1">
-          <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Độ trùng lặp / Rủi ro</label>
+          <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Mức rủi ro</label>
           <select
             value={selectedRisk}
             onChange={(e) => setSelectedRisk(e.target.value)}
-            className="w-full px-3 py-2 rounded-xl bg-gray-900 border border-gray-800/60 text-xs focus:outline-none focus:border-brand-500 text-white"
+            className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-xs focus:outline-none focus:border-accent-500 text-zinc-100"
           >
-            <option value="">Tất cả</option>
-            <option value="LOW">LOW (Bài gốc / Ít trùng)</option>
-            <option value="MEDIUM">MEDIUM (Trùng nội dung)</option>
+            <option value="">Tất cả rủi ro</option>
+            <option value="LOW">LOW (Bài mới / An toàn)</option>
+            <option value="MEDIUM">MEDIUM (Trùng lặp nhẹ)</option>
             <option value="HIGH">HIGH (Bị trùng nặng)</option>
           </select>
         </div>
 
-        {/* Reset button */}
         <div className="flex items-end">
           <button
             onClick={() => {
@@ -242,7 +277,7 @@ export default function ArticlesPage() {
               setSelectedRisk('');
               setSearch('');
             }}
-            className="w-full py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 font-semibold text-xs rounded-xl transition"
+            className="w-full py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium text-xs rounded-lg transition"
           >
             Xóa bộ lọc
           </button>
@@ -250,20 +285,21 @@ export default function ArticlesPage() {
       </div>
 
       {error && (
-        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm">
+        <div className="p-3.5 rounded-xl bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs flex items-center justify-between">
           <span>{error}</span>
+          <button onClick={() => setError(null)} className="text-zinc-500 hover:text-zinc-300">✕</button>
         </div>
       )}
 
-      {/* Feed list */}
-      <div className="space-y-4">
+      {/* Articles Feed List */}
+      <div className="space-y-3">
         {articles.length === 0 && !loading ? (
-          <div className="text-center py-16 rounded-2xl bg-gradient-to-b from-[#101524]/20 to-[#0c101c]/20 border border-gray-800/40">
-            <h3 className="text-sm font-bold text-white">Không tìm thấy bài viết nào</h3>
-            <p className="text-xs text-gray-400 mt-1">Vui lòng kiểm tra lại bộ lọc hoặc quét thủ công các nguồn tin cấp.</p>
+          <div className="text-center py-16 rounded-xl bg-surface-raised border border-zinc-800/40">
+            <h3 className="text-sm font-bold text-zinc-300">Không tìm thấy bài viết nào</h3>
+            <p className="text-xs text-zinc-500 mt-1">Hãy quét thêm nguồn tin cấp hoặc xóa bộ lọc để xem toàn bộ tin tức.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-4">
+          <div className="grid grid-cols-1 gap-3.5">
             {articles.map((article) => {
               const clusterInfo = article.clusterArticles?.[0];
               const isDuplicate = article.riskLevel === 'MEDIUM';
@@ -271,27 +307,27 @@ export default function ArticlesPage() {
               return (
                 <div
                   key={article.id}
-                  className={`p-6 rounded-2xl bg-gradient-to-b from-[#101524]/40 to-[#0c101c]/40 border backdrop-blur-md transition-all duration-200 hover:border-gray-700/60 ${
-                    isDuplicate ? 'border-yellow-500/20' : 'border-gray-800/40'
+                  className={`p-5 rounded-xl bg-surface-raised border transition-all duration-200 hover:border-zinc-700/60 ${
+                    isDuplicate ? 'border-amber-500/30' : 'border-zinc-800/60'
                   }`}
                 >
-                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                  <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
                     <div className="space-y-2 flex-1">
-                      {/* Meta Tags */}
+                      {/* Meta badges */}
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-brand-500/10 text-brand-400 border border-brand-500/20">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-accent-500/10 text-accent-400 border border-accent-500/20">
                           {article.source.attributionName}
                         </span>
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-800 text-gray-400">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-zinc-800 text-zinc-400">
                           {article.category}
                         </span>
                         {isDuplicate && (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">
-                            Khớp nội dung (Trùng lặp)
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                            Khớp trùng lặp
                           </span>
                         )}
                         {clusterInfo && (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/15 text-blue-400">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-500/10 text-sky-400 border border-sky-500/20">
                             Chủ đề: {clusterInfo.cluster.canonicalTopic}
                           </span>
                         )}
@@ -300,40 +336,64 @@ export default function ArticlesPage() {
                       {/* Title */}
                       <h3
                         onClick={() => handleOpenDetail(article.id)}
-                        className="text-base font-bold text-white hover:text-brand-400 cursor-pointer transition line-clamp-2"
+                        className="text-base font-bold text-zinc-100 hover:text-accent-400 cursor-pointer transition line-clamp-2 leading-snug"
                       >
                         {article.title}
                       </h3>
 
                       {/* Excerpt */}
-                      <p className="text-xs text-gray-400 line-clamp-3 leading-relaxed font-light">
+                      <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed font-light">
                         {article.contentExcerpt || article.summary || 'Không có bản tóm tắt nội dung...'}
                       </p>
 
                       {/* Footnotes */}
-                      <div className="flex items-center space-x-4 pt-2 text-[10px] text-gray-500 font-medium">
+                      <div className="flex flex-wrap items-center gap-3 pt-1 text-[10px] text-zinc-500 font-mono">
                         <span>Đăng: {new Date(article.publishedAt).toLocaleString('vi-VN')}</span>
+                        <span>•</span>
                         <span>Thu thập: {new Date(article.discoveredAt).toLocaleString('vi-VN')}</span>
-                        {article.author && <span>Tác giả: {article.author}</span>}
+                        {article.author && <span>• Tác giả: {article.author}</span>}
                       </div>
                     </div>
 
-                    {/* Actions button */}
-                    <div className="flex sm:flex-col items-stretch justify-end gap-2 self-end sm:self-start">
-                      <button
-                        onClick={() => handleOpenDetail(article.id)}
-                        className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-semibold transition"
-                      >
-                        Xem chi tiết
-                      </button>
-                      <a
-                        href={article.originalUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-3 py-2 bg-brand-500/10 hover:bg-brand-500/20 text-brand-400 rounded-xl text-xs font-semibold transition text-center"
-                      >
-                        Đọc nguồn gốc
-                      </a>
+                    {/* Direct Action Buttons */}
+                    <div className="flex md:flex-col items-stretch gap-2 shrink-0 self-end md:self-center">
+                      {!isReadonly && (
+                        <button
+                          onClick={() => handleRewrite(article.id)}
+                          disabled={creatingDraftId === article.id}
+                          className="px-3.5 py-2 bg-gradient-to-r from-accent-600 to-emerald-600 hover:from-accent-500 hover:to-emerald-500 text-white rounded-lg text-xs font-bold transition shadow-sm disabled:opacity-50 flex items-center justify-center gap-1.5"
+                        >
+                          {creatingDraftId === article.id ? (
+                            <>
+                              <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                              <span>Đang tạo...</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>⚡</span>
+                              <span>Tạo bản nháp AI</span>
+                            </>
+                          )}
+                        </button>
+                      )}
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleOpenDetail(article.id)}
+                          className="flex-1 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-medium transition text-center"
+                        >
+                          Xem chi tiết
+                        </button>
+                        <a
+                          href={article.originalUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-2.5 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 rounded-lg text-xs font-medium transition border border-zinc-800"
+                          title="Đọc trang báo gốc"
+                        >
+                          ↗️ Nguồn
+                        </a>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -342,130 +402,99 @@ export default function ArticlesPage() {
           </div>
         )}
 
-        {/* Load more */}
+        {/* Load More */}
         {nextCursor && (
           <div className="text-center pt-4">
             <button
               onClick={() => fetchArticles(nextCursor, true)}
               disabled={loading}
-              className="px-6 py-2.5 bg-[#0a0f1d] hover:bg-gray-800 border border-gray-800/60 text-white rounded-xl text-xs font-semibold transition"
+              className="px-6 py-2 bg-surface-raised hover:bg-zinc-800 border border-zinc-800 text-zinc-200 rounded-lg text-xs font-semibold transition disabled:opacity-50"
             >
-              {loading ? 'Đang tải thêm...' : 'Tải thêm tin'}
+              {loading ? 'Đang tải thêm...' : 'Tải thêm tin tức'}
             </button>
           </div>
         )}
       </div>
 
-      {/* Details Modal */}
+      {/* High-contrast Article Details Modal */}
       {selectedArticleId && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#0a0f1d] border border-gray-800/40 rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-2xl flex flex-col">
+        <div className="fixed inset-0 bg-black/75 z-50 flex items-center justify-center p-4">
+          <div className="bg-surface-raised border border-zinc-700/80 rounded-2xl w-full max-w-3xl max-h-[85vh] overflow-hidden shadow-2xl flex flex-col">
             {/* Modal Header */}
-            <div className="p-6 border-b border-gray-800/20 flex items-center justify-between">
-              <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">Chi tiết bài viết</h3>
+            <div className="p-4 px-6 border-b border-zinc-800 flex items-center justify-between bg-surface-sunken">
+              <span className="text-xs font-bold text-accent-400 uppercase tracking-wider">Chi tiết bài viết gốc</span>
               <button
                 onClick={() => setSelectedArticleId(null)}
-                className="text-gray-400 hover:text-white transition"
+                className="w-7 h-7 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-100 flex items-center justify-center transition text-sm font-bold"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                ✕
               </button>
             </div>
 
-            {detailLoading ? (
-              <div className="p-8 space-y-4 animate-pulse">
-                <div className="h-6 bg-gray-800/60 rounded-md w-3/4"></div>
-                <div className="h-4 bg-gray-800/60 rounded-md w-full"></div>
-                <div className="h-20 bg-gray-800/60 rounded-md w-full"></div>
-              </div>
-            ) : (
-              articleDetail && (
-                <div className="p-6 space-y-6 overflow-y-auto">
-                  {/* Title & Metadata */}
-                  <div className="space-y-3">
-                    <h2 className="text-xl font-bold text-white leading-snug">{articleDetail.title}</h2>
+            {/* Modal Content */}
+            <div className="p-6 overflow-y-auto space-y-5">
+              {detailLoading ? (
+                <div className="py-12 flex flex-col items-center justify-center gap-3 text-zinc-400">
+                  <div className="w-8 h-8 border-2 border-accent-500/30 border-t-accent-500 rounded-full animate-spin" />
+                  <span className="text-xs font-medium">Đang tải chi tiết tin tức...</span>
+                </div>
+              ) : articleDetail ? (
+                <>
+                  <div className="space-y-2">
+                    <h2 className="text-lg font-bold text-zinc-100 leading-snug">{articleDetail.title}</h2>
                     <div className="flex flex-wrap items-center gap-2 text-xs">
-                      <span className="px-2 py-0.5 rounded font-bold bg-brand-500/10 text-brand-400 border border-brand-500/20">
+                      <span className="px-2 py-0.5 rounded font-bold bg-accent-500/10 text-accent-400 border border-accent-500/20">
                         Nguồn: {articleDetail.source.attributionName} ({articleDetail.source.domain})
                       </span>
-                      <span className="px-2 py-0.5 rounded font-bold bg-gray-800 text-gray-400">
-                        {articleDetail.category}
-                      </span>
-                      <span className="px-2 py-0.5 rounded font-bold bg-gray-800 text-gray-400">
-                        Rủi ro: {articleDetail.riskLevel}
-                      </span>
-                      <span className="px-2 py-0.5 rounded font-bold bg-gray-800 text-gray-400">
-                        Bóc tách: {articleDetail.extractionStatus}
+                      <span className="px-2 py-0.5 rounded font-bold bg-zinc-800 text-zinc-400">
+                        Chuyên mục: {articleDetail.category}
                       </span>
                     </div>
                   </div>
 
-                  {/* HTML excerpt body */}
-                  <div className="p-5 rounded-2xl bg-gray-900/60 border border-gray-800/40 space-y-3">
-                    <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Nội dung trích xuất sạch (Excerpt)</h4>
-                    <p className="text-xs text-gray-300 leading-relaxed font-light whitespace-pre-wrap">
+                  {articleDetail.imageUrl && (
+                    <div className="relative w-full overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 max-h-[260px]">
+                      <img
+                        src={articleDetail.imageUrl}
+                        alt={articleDetail.title}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  )}
+
+                  <div className="p-4 rounded-xl bg-zinc-900/80 border border-zinc-800 space-y-2">
+                    <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Nội dung trích xuất sạch</span>
+                    <p className="text-xs text-zinc-300 leading-relaxed font-light whitespace-pre-wrap">
                       {articleDetail.contentExcerpt || articleDetail.summary || 'Không thể bóc tách nội dung chi tiết cho bài viết này.'}
                     </p>
                   </div>
 
-                  {/* Story clustering info */}
-                  {articleDetail.clusterArticles && articleDetail.clusterArticles.length > 0 && (
-                    <div className="p-4 rounded-xl bg-blue-950/10 border border-blue-900/20 space-y-3">
-                      <h4 className="text-xs font-bold text-blue-400">Gom nhóm chủ đề tin tức trùng lặp</h4>
-                      <p className="text-xs text-gray-400">
-                        Bài viết được hệ thống nhận diện tự động thuộc nhóm: <strong className="text-white">"{articleDetail.clusterArticles[0].cluster.canonicalTopic}"</strong>.
-                      </p>
+                  {/* Footer Action Bar */}
+                  <div className="pt-4 border-t border-zinc-800 flex flex-wrap items-center justify-between gap-3">
+                    <a
+                      href={articleDetail.originalUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs text-accent-400 hover:underline flex items-center gap-1"
+                    >
+                      <span>↗️ Đọc bài viết gốc trên {articleDetail.source.domain}</span>
+                    </a>
 
-                      {/* Display similar articles in cluster */}
-                      {articleDetail.clusterArticles[0].cluster.clusterArticles && (
-                        <div className="space-y-2 mt-2 pt-2 border-t border-gray-800/40">
-                          <span className="text-[10px] font-bold text-gray-500 uppercase">Các nguồn tin đăng tải tương tự:</span>
-                          <ul className="space-y-1.5">
-                            {articleDetail.clusterArticles[0].cluster.clusterArticles.map((rel: any) => (
-                              <li key={rel.article.id} className="text-xs flex items-center justify-between text-gray-300">
-                                <a
-                                  href={rel.article.canonicalUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="hover:underline text-brand-400 truncate max-w-sm"
-                                >
-                                  {rel.article.title}
-                                </a>
-                                <span className="text-[10px] text-gray-500">Khớp: {(rel.similarityScore * 100).toFixed(0)}%</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Footer links */}
-                  <div className="pt-6 border-t border-gray-800/20 flex flex-wrap items-center justify-between gap-4">
-                    <span className="text-[10px] text-gray-500">Đường dẫn canonical: {articleDetail.canonicalUrl}</span>
-                    <div className="flex items-center space-x-3">
-                      {!isReadonly && !articleDetail.archivedAt && (
-                        <button
-                          onClick={() => handleArchive(articleDetail.id)}
-                          className="px-4 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-xl text-xs font-semibold transition"
-                        >
-                          Lưu trữ (Archive)
-                        </button>
-                      )}
-                      <a
-                        href={articleDetail.originalUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold transition"
+                    {!isReadonly && (
+                      <button
+                        onClick={() => handleRewrite(articleDetail.id)}
+                        disabled={creatingDraftId === articleDetail.id}
+                        className="px-4 py-2 bg-gradient-to-r from-accent-600 to-emerald-600 hover:from-accent-500 hover:to-emerald-500 text-white rounded-lg text-xs font-bold transition shadow-md disabled:opacity-50 flex items-center gap-1.5"
                       >
-                        Đọc bản gốc
-                      </a>
-                    </div>
+                        {creatingDraftId === articleDetail.id ? 'Đang khởi tạo...' : '⚡ Tạo bản nháp AI ngay'}
+                      </button>
+                    )}
                   </div>
-                </div>
-              )
-            )}
+                </>
+              ) : (
+                <div className="text-center py-8 text-xs text-zinc-500">Không tải được thông tin bài viết.</div>
+              )}
+            </div>
           </div>
         </div>
       )}

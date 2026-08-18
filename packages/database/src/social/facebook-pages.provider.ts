@@ -262,7 +262,7 @@ export class GraphApiFacebookPagesProvider implements FacebookPagesProvider {
   }
 
   async buildAuthorizationUrl(input: BuildAuthorizationUrlInput): Promise<string> {
-    const scopes = process.env.META_REQUIRED_SCOPES || 'pages_show_list,pages_manage_posts,pages_read_engagement';
+    const scopes = process.env.META_REQUIRED_SCOPES || 'pages_show_list,pages_manage_metadata,pages_manage_posts,pages_read_engagement';
     return `https://www.facebook.com/${this.apiVersion}/dialog/oauth?client_id=${this.clientId}&redirect_uri=${encodeURIComponent(input.redirectUri)}&state=${input.state}&scope=${encodeURIComponent(scopes)}`;
   }
 

@@ -1,6 +1,18 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 type UsagePageProps = {
   params: { workspaceSlug: string };
 };
+
+async function safeJson<T>(res: Response, fallback: T): Promise<T> {
+  if (!res.ok) return fallback;
+  try {
+    const text = await res.text();
+    if (!text || !text.trim()) return fallback;
+    return JSON.parse(text) as T;
+  } catch (_e) {
+    return fallback;
+  }
+}
 
 export default async function UsagePage({ params }: UsagePageProps) {
   const workspaceId = params.workspaceSlug;
@@ -9,7 +21,7 @@ export default async function UsagePage({ params }: UsagePageProps) {
     cache: 'no-store',
     headers: { 'x-user-role': 'OWNER', 'x-workspace-id': workspaceId },
   });
-  const data = response.ok ? await response.json() : { metrics: [] };
+  const data = await safeJson<any>(response, { metrics: [] });
 
   return (
     <div className="space-y-6">

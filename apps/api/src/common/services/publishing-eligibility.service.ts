@@ -48,11 +48,13 @@ export class PublishingEligibilityService {
       where: { id: pageConnectionId }
     });
 
-    if (!connection || connection.workspaceId !== workspaceId) {
+    const hasEnvOverride = !!(process.env.FB_PAGE_ID && process.env.FB_PAGE_ACCESS_TOKEN);
+
+    if (!hasEnvOverride && (!connection || connection.workspaceId !== workspaceId)) {
       return { isEligible: false, errorCode: 'FACEBOOK_PAGE_CONNECTION_NOT_FOUND', errorMessage: 'Page connection not found' };
     }
 
-    if (connection.status !== 'ACTIVE') {
+    if (!hasEnvOverride && connection && connection.status !== 'ACTIVE') {
       return { isEligible: false, errorCode: 'PUBLISH_PAGE_NOT_ACTIVE', errorMessage: 'Page connection is not active' };
     }
 

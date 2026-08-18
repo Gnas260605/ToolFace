@@ -3,7 +3,7 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { DatabaseService } from '../common/database.service';
 import { JsonLogger } from '../common/logger.service';
-import { SecretEncryptionService, MockFacebookPagesProvider } from '@newsflow/database';
+import { SecretEncryptionService, FacebookPagesProvider, MockFacebookPagesProvider, GraphApiFacebookPagesProvider } from '@newsflow/database';
 
 @Processor('facebook-publish', {
   concurrency: 5,
@@ -14,7 +14,7 @@ import { SecretEncryptionService, MockFacebookPagesProvider } from '@newsflow/da
 })
 export class FacebookPublishWorker extends WorkerHost {
   private encryptionService: SecretEncryptionService;
-  private facebookProvider: MockFacebookPagesProvider;
+  private facebookProvider: FacebookPagesProvider;
 
   constructor(
     private readonly db: DatabaseService,
@@ -22,7 +22,9 @@ export class FacebookPublishWorker extends WorkerHost {
   ) {
     super();
     this.encryptionService = new SecretEncryptionService();
-    this.facebookProvider = new MockFacebookPagesProvider();
+    this.facebookProvider = process.env.META_PROVIDER === 'mock'
+      ? new MockFacebookPagesProvider()
+      : new GraphApiFacebookPagesProvider();
   }
 
   /** Cast to `any` so IDE doesn't need to resolve Prisma generated types. Runtime is fine. */
@@ -73,28 +75,54 @@ export class FacebookPublishWorker extends WorkerHost {
     });
 
     try {
-      // Decrypt token
-      const token = await this.encryptionService.decrypt({
-        ciphertext: publishJob.pageConnection.tokenCiphertext,
-        iv: publishJob.pageConnection.tokenIv,
-        authTag: publishJob.pageConnection.tokenAuthTag,
-        keyVersion: publishJob.pageConnection.tokenKeyVersion,
-        associatedData: `${workspaceId}:${publishJob.pageConnection.pageId}`
-      });
+      let token: string | null = null;
+      let pageId: string | null = null;
+
+      if (publishJob.pageConnection && publishJob.pageConnection.tokenCiphertext) {
+        try {
+          token = await this.encryptionService.decrypt({
+            ciphertext: publishJob.pageConnection.tokenCiphertext,
+            iv: publishJob.pageConnection.tokenIv,
+            authTag: publishJob.pageConnection.tokenAuthTag,
+            keyVersion: publishJob.pageConnection.tokenKeyVersion,
+            associatedData: `${workspaceId}:${publishJob.pageConnection.pageId}`
+          });
+          pageId = publishJob.pageConnection.pageId;
+        } catch (_decryptErr) {
+          this.logger.warn({
+            message: `Failed to decrypt page token for connection ${publishJob.pageConnection.id}, attempting ENV fallback if available`,
+            publishJobId
+          });
+        }
+      }
+
+      if (!token && process.env.FB_PAGE_ACCESS_TOKEN && process.env.FB_PAGE_ID) {
+        token = process.env.FB_PAGE_ACCESS_TOKEN;
+        pageId = process.env.FB_PAGE_ID;
+        this.logger.log({
+          message: `Using Facebook page credentials from environment variables override`,
+          publishJobId,
+          pageId
+        });
+      }
+
+      if (!token || !pageId) {
+        throw new Error('No valid Facebook page connection or ENV credentials found for publishing.');
+      }
 
       // Publish
       let result;
       if (publishJob.publicationType === 'LINK' && publishJob.linkSnapshot) {
         result = await this.facebookProvider.publishLinkPost({
           pageAccessToken: token,
-          pageId: publishJob.pageConnection.pageId,
+          pageId,
           message: publishJob.messageSnapshot,
           link: publishJob.linkSnapshot
         });
       } else {
         result = await this.facebookProvider.publishTextPost({
           pageAccessToken: token,
-          pageId: publishJob.pageConnection.pageId,
+          pageId,
           message: publishJob.messageSnapshot
         });
       }

@@ -89,6 +89,15 @@ export class ArticleExtractionProcessor extends WorkerHost {
         riskLevel = ArticleRiskLevel.MEDIUM;
       }
 
+      // Extract main image from og:image if not already present
+      let imageUrl = article.imageUrl || null;
+      if (!imageUrl) {
+        const ogImage = dom.window.document.querySelector('meta[property="og:image"]')?.getAttribute('content');
+        if (ogImage) {
+          imageUrl = ogImage;
+        }
+      }
+
       // 6. Update Article
       await this.db.article.update({
         where: { id: articleId },
@@ -98,6 +107,7 @@ export class ArticleExtractionProcessor extends WorkerHost {
           extractionStatus: ArticleExtractionStatus.SUCCESS,
           riskLevel,
           author: parsed.byline || article.author,
+          imageUrl: imageUrl || undefined,
         },
       });
 

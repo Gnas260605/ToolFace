@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 
 interface SystemStatus {
   name: string;
@@ -8,10 +9,23 @@ interface SystemStatus {
   environment: string;
 }
 
+const FEATURES = [
+  { label: 'AI Đa mô hình', desc: 'Gemini, OpenAI, OpenRouter tự động fallback', color: 'text-accent-400', bg: 'bg-accent-500/10' },
+  { label: 'Mã hoá AES-256', desc: 'Token & API keys được bảo vệ bởi AES-256-GCM', color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
+  { label: 'Hàng đợi BullMQ', desc: 'Job queue bền vững cho crawl, AI, publish', color: 'text-sky-400', bg: 'bg-sky-500/10' },
+  { label: 'Facebook Graph API', desc: 'Đăng bài tự động với retry & backoff', color: 'text-violet-400', bg: 'bg-violet-500/10' },
+];
+
+const PHASES = [
+  { phase: '00', title: 'Cơ sở hạ tầng', status: 'done', desc: 'Monorepo, Docker Compose, Postgres, Redis, MinIO' },
+  { phase: '01', title: 'Nền tảng an toàn', status: 'active', desc: 'AI Provider schema, Failover Chain, AES-256 secrets' },
+  { phase: '02', title: 'An toàn xuất bản', status: 'next', desc: 'Auto-Approve Guardrail, Dedup, Facebook retry/backoff' },
+  { phase: '03', title: 'Vận hành lâu dài', status: 'planned', desc: 'BullMQ concurrency, structured logging, monitoring' },
+];
+
 export default function Home() {
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
@@ -20,202 +34,230 @@ export default function Home() {
         if (!res.ok) throw new Error('API returned error');
         return res.json();
       })
-      .then((data) => {
-        setStatus(data);
-        setLoading(false);
-      })
-      .catch((err) => {
-        setError(err.message || 'API không hoạt động');
-        setLoading(false);
-      });
+      .then((data) => { setStatus(data); setLoading(false); })
+      .catch(() => { setLoading(false); });
   }, []);
 
   return (
-    <div className="relative min-h-screen flex flex-col justify-between overflow-hidden bg-[#070a13] selection:bg-brand-500">
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[600px] bg-[radial-gradient(circle_at_center,rgba(30,58,138,0.15)_0%,rgba(0,0,0,0)_70%)] pointer-events-none z-0" />
-      <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)] pointer-events-none z-0" />
+    <div className="relative min-h-screen flex flex-col bg-surface-base text-zinc-100 overflow-x-hidden">
+      {/* ─── Background Effects ─── */}
+      <div className="fixed inset-0 pointer-events-none z-0">
+        <div className="absolute top-0 left-[10%] w-[600px] h-[600px] bg-accent-500/[0.04] rounded-full blur-[150px]" />
+        <div className="absolute bottom-[10%] right-[10%] w-[500px] h-[500px] bg-emerald-500/[0.03] rounded-full blur-[120px]" />
+        <div className="dot-grid absolute inset-0 opacity-40" style={{ maskImage: 'radial-gradient(ellipse 70% 50% at 50% 30%, black 50%, transparent 100%)' }} />
+      </div>
 
+      {/* ─── Header ─── */}
       <header className="relative z-10 w-full max-w-6xl mx-auto px-6 py-6 flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-brand-600 to-blue-400 flex items-center justify-center shadow-lg shadow-brand-500/10">
-            <span className="font-display font-bold text-white text-base">N</span>
+        <div className="flex items-center gap-3 group cursor-pointer">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent-500 to-emerald-600 flex items-center justify-center shadow-lg shadow-accent-500/10 group-hover:scale-105 transition-transform">
+            <span className="font-display text-white text-xl font-bold italic">T</span>
           </div>
-          <span className="font-display font-bold text-lg tracking-tight">NewsFlow AI</span>
+          <div>
+            <span className="text-lg font-bold text-zinc-100 tracking-tight">ToolFace</span>
+            <span className="text-[9px] text-accent-400 font-medium tracking-widest uppercase ml-2">AI</span>
+          </div>
         </div>
-        <div className="flex items-center space-x-2">
-          {loading && (
-            <span className="flex h-2.5 w-2.5 relative">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-yellow-500"></span>
-            </span>
-          )}
-          {!loading && status && (
-            <span className="flex h-2.5 w-2.5 relative">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-            </span>
-          )}
-          {!loading && error && (
-            <span className="flex h-2.5 w-2.5 relative">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
-            </span>
-          )}
-          <span className="text-xs text-gray-400 font-medium">
-            {loading
-              ? 'Đang kiểm tra kết nối...'
-              : status
-                ? 'Hệ thống kết nối thành công'
-                : 'Không thể kết nối API'}
+
+        {/* Status Indicator */}
+        <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-zinc-900/60 border border-zinc-800/40 backdrop-blur-sm">
+          <span className="relative flex h-2 w-2">
+            {loading ? (
+              <>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-60" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
+              </>
+            ) : status ? (
+              <>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+              </>
+            ) : (
+              <>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-60" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500" />
+              </>
+            )}
+          </span>
+          <span className="text-[11px] text-zinc-400 font-medium">
+            {loading ? 'Connecting...' : status ? 'Systems Online' : 'Offline'}
           </span>
         </div>
       </header>
 
-      <main className="relative z-10 flex-grow flex flex-col justify-center max-w-4xl mx-auto px-6 py-12 text-center">
-        <div className="space-y-6">
-          <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-brand-950/40 border border-brand-900/50 backdrop-blur-md">
-            <span className="text-xs font-semibold uppercase tracking-wider text-brand-400">
-              Phiên bản Thử nghiệm 0.1.0
-            </span>
+      {/* ─── Hero ─── */}
+      <main className="relative z-10 flex-grow flex flex-col justify-center max-w-6xl mx-auto px-6 py-16">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-16 items-center">
+          {/* Left */}
+          <div className="lg:col-span-7 space-y-8">
+            <div className="space-y-5">
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent-500/10 border border-accent-500/20">
+                <span className="w-1.5 h-1.5 rounded-full bg-accent-400 animate-pulse-soft" />
+                <span className="text-[10px] font-semibold tracking-widest uppercase text-accent-400">Production Ready</span>
+              </div>
+
+              <h1 className="text-5xl sm:text-6xl lg:text-7xl leading-[0.95] tracking-tight">
+                <span className="font-display italic text-zinc-100">Tự động hóa</span>
+                <br />
+                <span className="font-display italic bg-clip-text text-transparent bg-gradient-to-r from-accent-400 via-emerald-400 to-teal-300">
+                  nội dung Facebook
+                </span>
+              </h1>
+
+              <p className="text-zinc-500 text-base leading-relaxed max-w-lg">
+                Crawl tin tức → AI viết nháp → Duyệt biên tập → Đăng lên Facebook Page.
+                Toàn bộ luồng tự động, an toàn, có kiểm soát.
+              </p>
+            </div>
+
+            {/* Feature Pills */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {FEATURES.map((f) => (
+                <div key={f.label} className={`flex items-center gap-3 px-4 py-3 rounded-xl ${f.bg} border border-zinc-800/30`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${f.color.replace('text-', 'bg-')}`} />
+                  <div>
+                    <p className={`text-xs font-semibold ${f.color}`}>{f.label}</p>
+                    <p className="text-[11px] text-zinc-500">{f.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
-          <h1 className="font-display text-4xl sm:text-6xl font-bold tracking-tight text-white leading-tight">
-            NewsFlow AI
-          </h1>
-          <p className="max-w-2xl mx-auto text-base sm:text-xl text-gray-300 leading-relaxed font-light">
-            Nền tảng hỗ trợ tổng hợp, biên tập và đăng tin lên Facebook Page.
-          </p>
+
+          {/* Right — Gateway Card */}
+          <div className="lg:col-span-5">
+            <div className="rounded-2xl bg-surface-raised/90 border border-zinc-800/60 backdrop-blur-xl shadow-2xl shadow-black/20 overflow-hidden relative">
+              <div className="absolute top-0 right-0 w-40 h-40 bg-accent-500/[0.04] rounded-full blur-[60px] pointer-events-none" />
+
+              <div className="px-7 py-5 border-b border-zinc-800/30 flex items-center justify-between">
+                <span className="text-[10px] font-semibold text-zinc-500 tracking-[0.15em] uppercase">Gateway Status</span>
+                <span className="text-[10px] font-medium text-accent-400">v0.1.0</span>
+              </div>
+
+              <div className="px-7 py-6 space-y-6">
+                {loading && (
+                  <div className="space-y-3">
+                    <div className="h-3 bg-zinc-800/80 rounded w-1/3 shimmer" />
+                    <div className="h-12 bg-zinc-800/80 rounded w-full shimmer" />
+                    <div className="h-3 bg-zinc-800/80 rounded w-1/2 shimmer" />
+                  </div>
+                )}
+
+                {!loading && !status && (
+                  <div className="text-center py-4 space-y-3">
+                    <div className="w-12 h-12 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mx-auto">
+                      <svg className="w-5 h-5 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                    </div>
+                    <p className="text-sm font-medium text-rose-400">Không kết nối được API</p>
+                    <p className="text-xs text-zinc-500">Hãy khởi động backend trước</p>
+                  </div>
+                )}
+
+                {!loading && status && (
+                  <>
+                    <div className="flex items-center gap-4 p-4 rounded-xl bg-emerald-950/20 border border-emerald-500/15">
+                      <div className="w-10 h-10 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-emerald-400">API Gateway Connected</p>
+                        <p className="text-[11px] text-zinc-500">Tất cả dịch vụ sẵn sàng</p>
+                      </div>
+                    </div>
+
+                    <Link
+                      href="/app/default-workspace/articles"
+                      className="flex w-full items-center justify-center gap-2 px-5 py-3.5 rounded-xl bg-gradient-to-r from-accent-600 to-emerald-600 hover:from-accent-500 hover:to-emerald-500 text-white font-bold text-sm transition-all duration-300 shadow-lg shadow-accent-600/15 hover:shadow-accent-500/25 active:scale-[0.98]"
+                    >
+                      Vào Bảng Điều Khiển
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                      </svg>
+                    </Link>
+
+                    <div className="grid grid-cols-2 gap-4 pt-4 border-t border-zinc-800/30">
+                      <div>
+                        <span className="text-[9px] uppercase tracking-[0.15em] text-zinc-600 font-medium">Dịch vụ</span>
+                        <p className="text-xs font-semibold text-zinc-300 mt-0.5">{status.name}</p>
+                      </div>
+                      <div>
+                        <span className="text-[9px] uppercase tracking-[0.15em] text-zinc-600 font-medium">Môi trường</span>
+                        <p className="text-xs font-semibold text-accent-400 mt-0.5">{status.environment.toUpperCase()}</p>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="mt-12 max-w-md mx-auto w-full">
-          <div className="p-6 rounded-2xl bg-gradient-to-b from-[#101524] to-[#0c101c] border border-gray-800/40 backdrop-blur-md shadow-xl">
-            <h2 className="text-sm font-semibold tracking-wider uppercase text-gray-400 mb-4">
-              Trạng thái kết nối API
+        {/* ─── Phase Timeline ─── */}
+        <section className="mt-28">
+          <div className="text-center max-w-xl mx-auto mb-14 space-y-3">
+            <p className="text-[10px] font-semibold tracking-[0.2em] uppercase text-accent-400">Roadmap</p>
+            <h2 className="font-display italic text-3xl sm:text-4xl text-zinc-100">
+              Lộ trình phát triển
             </h2>
-
-            {loading && (
-              <div className="space-y-3 animate-pulse">
-                <div className="h-4 bg-gray-800/60 rounded-md w-3/4 mx-auto"></div>
-                <div className="h-8 bg-gray-800/60 rounded-md w-full"></div>
-                <div className="h-4 bg-gray-800/60 rounded-md w-1/2 mx-auto"></div>
-              </div>
-            )}
-
-            {!loading && error && (
-              <div className="space-y-3">
-                <div className="inline-flex items-center justify-center p-3 rounded-full bg-rose-950/20 text-rose-400 border border-rose-900/30">
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="2"
-                      d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                    />
-                  </svg>
-                </div>
-                <p className="text-sm font-medium text-rose-400">
-                  Không thể kết nối đến máy chủ API
-                </p>
-                <p className="text-xs text-gray-400 leading-relaxed">
-                  Backend API ngoại tuyến hoặc gặp lỗi kiểm tra CORS. Vui lòng xác nhận dịch vụ API
-                  tại{' '}
-                  <code className="px-1 py-0.5 rounded bg-gray-900 text-gray-300 font-mono text-[10px]">
-                    apps/api
-                  </code>{' '}
-                  đang chạy.
-                </p>
-              </div>
-            )}
-
-            {!loading && status && (
-              <div className="space-y-4">
-                <div className="inline-flex items-center justify-center p-3 rounded-full bg-emerald-950/20 text-emerald-400 border border-emerald-900/30">
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="2"
-                      d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-emerald-400">Kết nối thành công</p>
-                  <p className="text-xs text-gray-400 mt-1">Hệ thống đang hoạt động bình thường</p>
-                </div>
-                <div className="pt-2">
-                  <a
-                    href="/app/default-workspace/drafts"
-                    className="inline-flex w-full items-center justify-center px-4 py-2.5 rounded-xl bg-gradient-to-r from-brand-600 to-blue-500 hover:from-brand-500 hover:to-blue-400 text-white font-semibold text-sm transition-all duration-200 shadow-lg shadow-brand-500/10 active:scale-[0.98]"
-                  >
-                    Vào bảng điều khiển Workspace
-                  </a>
-                </div>
-                <div className="pt-4 border-t border-gray-800/40 grid grid-cols-2 gap-3 text-left">
-                  <div>
-                    <span className="text-[10px] uppercase text-gray-500 font-semibold">
-                      Tên dịch vụ
-                    </span>
-                    <p className="text-xs font-semibold text-gray-300 truncate">{status.name}</p>
-                  </div>
-                  <div>
-                    <span className="text-[10px] uppercase text-gray-500 font-semibold">
-                      Phiên bản
-                    </span>
-                    <p className="text-xs font-semibold text-gray-300">{status.version}</p>
-                  </div>
-                  <div className="col-span-2">
-                    <span className="text-[10px] uppercase text-gray-500 font-semibold">
-                      Môi trường hoạt động
-                    </span>
-                    <p className="text-xs font-semibold text-gray-300 uppercase tracking-wider">
-                      {status.environment}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
+            <p className="text-sm text-zinc-500">Từng giai đoạn hóa cứng để đưa hệ thống lên production-grade</p>
           </div>
-        </div>
 
-        <div className="mt-16 text-left max-w-4xl mx-auto">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-brand-400 mb-6 text-center">
-            Các giai đoạn phát triển nền tảng
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="p-4 rounded-xl bg-brand-950/10 border border-brand-900/20">
-              <span className="text-xs font-bold text-brand-500">Giai đoạn 0</span>
-              <h4 className="text-sm font-semibold text-white mt-1">Cơ sở hạ tầng</h4>
-              <p className="text-[11px] text-gray-400 mt-2">
-                Xây dựng Monorepo, thiết lập PostgreSQL, Redis, MinIO và Docker.
-              </p>
-            </div>
-            <div className="p-4 rounded-xl bg-gray-900/10 border border-gray-800/30 opacity-60">
-              <span className="text-xs font-bold text-gray-500">Giai đoạn 1-2</span>
-              <h4 className="text-sm font-semibold text-gray-300 mt-1">Nhận diện & Thu thập</h4>
-              <p className="text-[11px] text-gray-500 mt-2">
-                Phân quyền đa tổ chức và thu thập tin tức tự động từ RSS nguồn.
-              </p>
-            </div>
-            <div className="p-4 rounded-xl bg-gray-900/10 border border-gray-800/30 opacity-60">
-              <span className="text-xs font-bold text-gray-500">Giai đoạn 3-4</span>
-              <h4 className="text-sm font-semibold text-gray-300 mt-1">Biên tập AI & Meta</h4>
-              <p className="text-[11px] text-gray-500 mt-2">
-                Trích xuất sự kiện qua AI, soạn thảo bài viết và kết nối trang Facebook.
-              </p>
-            </div>
-            <div className="p-4 rounded-xl bg-gray-900/10 border border-gray-800/30 opacity-60">
-              <span className="text-xs font-bold text-gray-500">Giai đoạn 5-6</span>
-              <h4 className="text-sm font-semibold text-gray-300 mt-1">Lịch đăng & Thương mại</h4>
-              <p className="text-[11px] text-gray-500 mt-2">
-                Quản lý lịch đăng bài tập trung, đo lường giới hạn và kích hoạt gói phí.
-              </p>
-            </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {PHASES.map((p) => {
+              const isActive = p.status === 'active';
+              const isDone = p.status === 'done';
+              return (
+                <div
+                  key={p.phase}
+                  className={`
+                    relative p-6 rounded-xl border transition-all duration-300 group overflow-hidden
+                    ${isActive
+                      ? 'bg-accent-950/20 border-accent-500/25 hover:border-accent-500/40 shadow-lg shadow-accent-500/5'
+                      : isDone
+                        ? 'bg-surface-raised border-zinc-800/50 hover:border-zinc-700/60'
+                        : 'bg-surface-raised/50 border-zinc-800/30 hover:border-zinc-800/50'
+                    }
+                  `}
+                >
+                  {isActive && (
+                    <div className="absolute top-3 right-3 w-2 h-2 rounded-full bg-accent-400 animate-pulse-soft" />
+                  )}
+
+                  <span className={`text-[10px] font-semibold tracking-[0.15em] ${isActive ? 'text-accent-400' : isDone ? 'text-zinc-500' : 'text-zinc-600'}`}>
+                    PHASE {p.phase}
+                  </span>
+
+                  <h4 className="text-base font-bold text-zinc-100 mt-1.5 font-display italic">
+                    {p.title}
+                  </h4>
+
+                  <p className="text-[12px] text-zinc-500 mt-3 leading-relaxed">
+                    {p.desc}
+                  </p>
+
+                  <div className="mt-5 pt-3 border-t border-zinc-800/30 flex items-center justify-between">
+                    <span className="text-[9px] uppercase tracking-[0.12em] text-zinc-600 font-medium">Trạng thái</span>
+                    <span className={`
+                      text-[10px] font-semibold px-2.5 py-1 rounded-full
+                      ${isActive ? 'bg-accent-500/10 text-accent-400' : isDone ? 'bg-emerald-500/10 text-emerald-400' : 'bg-zinc-800/60 text-zinc-500'}
+                    `}>
+                      {isDone ? '✓ Hoàn thành' : isActive ? '● Đang triển khai' : p.status === 'next' ? 'Giai đoạn kế' : 'Lên kế hoạch'}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        </div>
+        </section>
       </main>
 
-      <footer className="relative z-10 w-full py-6 border-t border-gray-900/40 text-center text-xs text-gray-500">
-        <p>© {new Date().getFullYear()} NewsFlow AI. Đã bảo lưu mọi quyền.</p>
+      {/* ─── Footer ─── */}
+      <footer className="relative z-10 w-full py-8 border-t border-zinc-800/20 text-center">
+        <p className="text-xs text-zinc-600">© {new Date().getFullYear()} ToolFace AI. Built for production scale.</p>
       </footer>
     </div>
   );

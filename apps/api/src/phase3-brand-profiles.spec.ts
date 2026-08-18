@@ -1,10 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, ExecutionContext } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import request from 'supertest';
 import { describe, beforeAll, afterAll, it, expect, vi } from 'vitest';
 import { BrandProfilesController } from './brand-profiles.controller';
 import { DatabaseService } from './common/database.service';
+import { SaasService } from './common/services/saas.service';
+import { PermissionsGuard } from './common/auth.guard';
 
 // ---------------------------------------------------------------------------
 // Mock DatabaseService — simulates all Prisma model properties Phase 3 needs
@@ -42,6 +44,10 @@ const buildMockDb = () => ({
   },
 });
 
+const mockSaasService = {
+  assertActionAllowed: vi.fn().mockResolvedValue(true),
+};
+
 // ---------------------------------------------------------------------------
 // Integration — Brand Profiles Controller
 // ---------------------------------------------------------------------------
@@ -68,10 +74,39 @@ describe('BrandProfilesController — Integration Tests', () => {
         BullModule.forRoot({ connection: { host: 'localhost', port: 6379 } }),
       ],
       controllers: [BrandProfilesController],
-      providers: [{ provide: DatabaseService, useValue: mockDb }],
-    }).compile();
+      providers: [
+        { provide: DatabaseService, useValue: mockDb },
+        { provide: SaasService, useValue: mockSaasService },
+      ],
+    })
+      .overrideGuard(PermissionsGuard)
+      .useValue({
+        canActivate: (context: ExecutionContext) => {
+          const req = context.switchToHttp().getRequest();
+          const user = req.user;
+          if (!user) return false;
+          const handler = context.getHandler();
+          const name = handler ? handler.name : '';
+          const isRead = ['findAll', 'findOne'].includes(name);
+          if (isRead) {
+            return ['OWNER', 'ADMIN', 'EDITOR', 'REVIEWER', 'VIEWER'].includes(user.role);
+          } else {
+            return ['OWNER', 'ADMIN'].includes(user.role);
+          }
+        }
+      })
+      .compile();
 
     app = moduleRef.createNestApplication();
+    app.setGlobalPrefix('api/v1');
+
+    // Manually assign dependencies to controller instance to bypass esbuild metadata injection issues
+    const controller = moduleRef.get<BrandProfilesController>(BrandProfilesController);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (controller as any).db = mockDb;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (controller as any).saasService = mockSaasService;
+
     await app.init();
   });
 

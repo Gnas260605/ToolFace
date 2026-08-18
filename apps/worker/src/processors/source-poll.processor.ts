@@ -5,8 +5,6 @@ import { Injectable, Inject } from '@nestjs/common';
 import { DatabaseService } from '../common/database.service';
 import { JsonLogger } from '../common/logger.service';
 import {
-  safeFetch,
-  parseFeed,
   normalizeUrl,
   normalizeTitle,
   calculateHash,
@@ -15,7 +13,17 @@ import {
   PollRunStatus,
   ArticleExtractionStatus,
   ArticleRiskLevel,
+  Source,
 } from '@newsflow/database';
+import sanitizeHtml from 'sanitize-html';
+import {
+  RssAdapter,
+  GoogleTrendsAdapter,
+  RedditAdapter,
+  YouTubeAdapter,
+  ScraperAdapter,
+  SourceAdapter,
+} from '../adapters';
 
 @Processor('source-poll')
 @Injectable()
@@ -27,6 +35,23 @@ export class SourcePollProcessor extends WorkerHost {
     @InjectQueue('story-clustering') private readonly clusteringQueue: Queue,
   ) {
     super();
+  }
+
+  private getAdapter(source: Source): SourceAdapter {
+    const url = source.feedUrl.toLowerCase();
+    if (url.includes('trends.google') || url.includes('google.com/trends')) {
+      return new GoogleTrendsAdapter();
+    }
+    if (url.includes('reddit.com') || url.startsWith('r/')) {
+      return new RedditAdapter();
+    }
+    if (url.includes('youtube.com') || (source.feedUrl.startsWith('UC') && source.feedUrl.length >= 24)) {
+      return new YouTubeAdapter();
+    }
+    if (source.sourceType === 'APPROVED_WEB_PAGE') {
+      return new ScraperAdapter();
+    }
+    return new RssAdapter();
   }
 
   async process(job: Job<any, any, string>): Promise<any> {
@@ -59,20 +84,15 @@ export class SourcePollProcessor extends WorkerHost {
     });
 
     try {
-      // 2. Safely Fetch
-      const res = await safeFetch(source.feedUrl, {
-        allowHttpInDev: true,
-        maxBytes: 5 * 1024 * 1024,
-      });
-
-      // 3. Parse Feed
-      const parsed = parseFeed(res.body, source.feedUrl);
+      // 2. Fetch via appropriate adapter
+      const adapter = this.getAdapter(source);
+      const entries = await adapter.fetch(source);
 
       let articlesCreated = 0;
       let duplicatesSkipped = 0;
 
-      // 4. Loop & Normalize entries
-      for (const entry of parsed.entries) {
+      // 3. Loop & Normalize entries
+      for (const entry of entries) {
         const canonical = normalizeUrl(entry.canonicalUrl);
         const originalTitle = entry.title;
         const normTitle = normalizeTitle(originalTitle);
@@ -87,9 +107,36 @@ export class SourcePollProcessor extends WorkerHost {
           continue;
         }
 
-        const summaryText = entry.summary || '';
-        const cHash = calculateHash(summaryText);
+        // Check Layer 2: Content Hash or Title Hash uniqueness per workspace (Ingestion Dedup)
+        const cleanSummary = entry.summary
+          ? sanitizeHtml(entry.summary, { allowedTags: [], allowedAttributes: {} }).trim()
+          : '';
+
+        const cHash = calculateHash(cleanSummary);
         const tHash = calculateHash(normTitle);
+
+        const existingDuplicate = await this.db.article.findFirst({
+          where: {
+            workspaceId,
+            OR: [
+              { contentHash: cHash },
+              { normalizedTitleHash: tHash },
+            ],
+          },
+        });
+
+        if (existingDuplicate) {
+          duplicatesSkipped++;
+          continue;
+        }
+
+        let imageUrl = entry.imageUrl || null;
+        if (!imageUrl && entry.summary) {
+          const match = entry.summary.match(/<img[^>]+src=["']([^"']+)["']/i);
+          if (match) {
+            imageUrl = match[1];
+          }
+        }
 
         // Check if allow page extraction
         const shouldExtract = source.allowPageExtraction;
@@ -103,12 +150,12 @@ export class SourcePollProcessor extends WorkerHost {
             canonicalUrl: canonical,
             originalUrl: entry.originalUrl,
             title: originalTitle,
-            summary: entry.summary,
+            summary: cleanSummary || null,
             author: entry.author || null,
             publishedAt: entry.publishedAt || new Date(),
             language: source.language,
             category: source.category,
-            imageUrl: entry.imageUrl || null,
+            imageUrl,
             contentHash: cHash,
             normalizedTitle: normTitle,
             normalizedTitleHash: tHash,
@@ -149,7 +196,7 @@ export class SourcePollProcessor extends WorkerHost {
         );
       }
 
-      // 5. Update success health state
+      // 4. Update success health state
       const nextPollAt = new Date(Date.now() + source.pollIntervalSeconds * 1000);
       await this.db.source.update({
         where: { id: sourceId },
@@ -170,8 +217,8 @@ export class SourcePollProcessor extends WorkerHost {
         data: {
           status: PollRunStatus.SUCCESS,
           finishedAt: new Date(),
-          httpStatus: res.status,
-          entriesReceived: parsed.entries.length,
+          httpStatus: 200,
+          entriesReceived: entries.length,
           articlesCreated,
           duplicatesSkipped,
         },
@@ -222,3 +269,4 @@ export class SourcePollProcessor extends WorkerHost {
     }
   }
 }
+

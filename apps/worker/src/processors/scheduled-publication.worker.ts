@@ -152,7 +152,8 @@ export class ScheduledPublicationWorker extends WorkerHost {
 
       // 9. Revalidate page connection
       const pageConn = publishJob.pageConnection;
-      if (!pageConn || pageConn.workspaceId !== workspaceId || pageConn.status !== 'ACTIVE') {
+      const hasEnvOverride = !!(process.env.FB_PAGE_ID && process.env.FB_PAGE_ACCESS_TOKEN);
+      if (!hasEnvOverride && (!pageConn || pageConn.workspaceId !== workspaceId || pageConn.status !== 'ACTIVE')) {
         await this.failJob(publishJobId, workspaceId, 'SCHEDULE_PAGE_REAUTH_REQUIRED', 'Page connection is not active', correlationId);
         // Emit outbox event for reauth notification
         await this.p.outboxEvent.create({

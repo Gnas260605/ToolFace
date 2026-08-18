@@ -95,12 +95,121 @@ export class PublishController {
         correlationId: publishJob.id,
         createdAt: publishJob.createdAt.toISOString()
       },
-      { jobId: publishJob.id }
+      { 
+        jobId: publishJob.id,
+        attempts: 5,
+        backoff: {
+          type: 'exponential',
+          delay: 5000,
+        },
+      }
     );
 
     this.logger.log({ message: 'Publish job queued', publishJobId: publishJob.id, workspaceId, draftId });
 
     return { status: 'QUEUED', publishJobId: publishJob.id };
+  }
+
+  @Post('drafts/:draftId/quick-publish')
+  @RequirePermissions('drafts.publish')
+  async quickPublishDraft(
+    @Param('workspaceId') workspaceId: string,
+    @Param('draftId') draftId: string,
+    @Body() body: { pageConnectionId?: string; publicationType?: string; confirmed: boolean },
+    @Headers('x-user-id') userId: string,
+    @Headers('idempotency-key') idempotencyKey: string
+  ) {
+    await this.saasService.assertActionAllowed(workspaceId, 'publish', userId || 'SYSTEM');
+
+    if (!idempotencyKey) {
+      throw new BadRequestException('idempotency-key header is required');
+    }
+    if (!body.confirmed) {
+      throw new BadRequestException('Publish must be confirmed');
+    }
+
+    // 1. Fetch Draft and verify it has versions
+    const draft = await this.p.draft.findFirst({
+      where: { id: draftId, workspaceId },
+      include: { versions: { orderBy: { versionNumber: 'desc' }, take: 1 } },
+    });
+    if (!draft) {
+      throw new BadRequestException('Draft not found');
+    }
+    const latestVersion = draft.versions[0];
+    if (!latestVersion) {
+      throw new BadRequestException('Draft has no content versions');
+    }
+
+    // 2. Resolve Page Connection ID
+    let resolvedPageConnectionId = body.pageConnectionId;
+    if (!resolvedPageConnectionId) {
+      const activeConnection = await this.p.facebookPageConnection.findFirst({
+        where: { workspaceId, status: 'ACTIVE' },
+      });
+      if (activeConnection) {
+        resolvedPageConnectionId = activeConnection.id;
+      } else if (process.env.FB_PAGE_ID && process.env.FB_PAGE_ACCESS_TOKEN) {
+        // Use a placeholder or any connection when override is present
+        const anyConnection = await this.p.facebookPageConnection.findFirst({
+          where: { workspaceId },
+        });
+        resolvedPageConnectionId = anyConnection?.id || 'env-override-connection-id';
+      } else {
+        throw new BadRequestException('Chưa kết nối trang Facebook để đăng bài.');
+      }
+    }
+
+    // 3. Auto-approve the draft
+    if (draft.status !== 'APPROVED') {
+      await this.p.draft.update({
+        where: { id: draftId },
+        data: {
+          status: 'APPROVED',
+          approvedByUserId: userId || 'SYSTEM',
+          approvedAt: new Date(),
+        },
+      });
+
+      // Record draft review approved
+      await this.p.draftReview.create({
+        data: {
+          workspaceId,
+          draftId,
+          draftVersionId: latestVersion.id,
+          reviewerUserId: userId || 'SYSTEM',
+          decision: 'APPROVED',
+          comment: 'Tự động phê duyệt qua tính năng Đăng Nhanh.',
+        },
+      });
+
+      // Log audit
+      await this.p.auditLog.create({
+        data: {
+          workspaceId,
+          actorId: userId || 'SYSTEM',
+          actorType: 'USER',
+          action: 'draft.approved.quick',
+          resource: 'draft',
+          resourceId: draftId,
+          correlationId: `quick-publish-${draftId}`,
+        },
+      });
+    }
+
+    // 4. Delegate to publish draft
+    return this.publishDraft(
+      workspaceId,
+      draftId,
+      {
+        draftVersionId: latestVersion.id,
+        pageConnectionId: resolvedPageConnectionId!,
+        publicationType: body.publicationType || 'LINK',
+        confirmed: true,
+      },
+      userId,
+      idempotencyKey
+    );
   }
 
   @Get('publish-jobs')

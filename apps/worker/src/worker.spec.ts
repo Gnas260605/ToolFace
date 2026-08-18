@@ -48,6 +48,12 @@ describe('WorkerService tests', () => {
             add: vi.fn(),
           },
         },
+        {
+          provide: 'BullQueue_maintenance',
+          useValue: {
+            add: vi.fn(),
+          },
+        },
       ],
     }).compile();
 

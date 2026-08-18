@@ -7,112 +7,184 @@ import {
   FactSheet,
   GeneratedDraft,
   DraftVerificationResult,
-  FactSheetSchema,
-  GeneratedDraftSchema,
-  DraftVerificationResultSchema,
   FactExtractionInput,
   DraftGenerationInput,
   DraftVerificationInput,
+  FactSheetSchema,
+  GeneratedDraftSchema,
+  DraftVerificationResultSchema,
 } from './ai-provider.interface';
 
 export class GeminiAiProvider implements AiProvider {
-  private genAi: GoogleGenerativeAI;
+  private readonly keys: string[];
+  private currentKeyIndex = 0;
+  private readonly fallbackModels = [
+    'gemini-2.5-flash',
+    'gemini-1.5-flash',
+    'gemini-2.5-flash-lite',
+    'gemini-3.1-flash-lite',
+    'gemini-1.5-pro',
+  ];
 
-  constructor(apiKey: string) {
-    if (!apiKey) {
-      throw new Error('AI_PROVIDER_NOT_CONFIGURED');
+  constructor(apiKey: string | string[]) {
+    const keyList = Array.isArray(apiKey)
+      ? apiKey
+      : String(apiKey)
+          .split(/[\n,;]+/)
+          .map((k) => k.trim())
+          .filter(Boolean);
+
+    if (keyList.length === 0) {
+      throw new Error('Gemini API Key is required for GeminiAiProvider.');
     }
-    this.genAi = new GoogleGenerativeAI(apiKey);
+    this.keys = keyList;
+  }
+
+  private getGenAi(): { genAi: GoogleGenerativeAI; key: string } {
+    const key = this.keys[this.currentKeyIndex % this.keys.length];
+    return { genAi: new GoogleGenerativeAI(key), key };
+  }
+
+  private rotateKey() {
+    if (this.keys.length > 1) {
+      this.currentKeyIndex = (this.currentKeyIndex + 1) % this.keys.length;
+      console.log(`[GeminiAiProvider] Rotating to API key #${this.currentKeyIndex + 1}/${this.keys.length}`);
+    }
   }
 
   private async callGemini<T>(
     prompt: string,
     systemInstruction: string,
-    modelName: string,
+    requestedModel: string,
     schema: any,
     context: AiRequestContext
   ): Promise<{ data: T; inputTokens: number; outputTokens: number }> {
-    try {
-      const model = this.genAi.getGenerativeModel({
-        model: modelName || 'gemini-1.5-flash',
-        systemInstruction,
-        generationConfig: {
-          responseMimeType: 'application/json',
-        },
-      });
+    const modelsToTry = [requestedModel, ...this.fallbackModels.filter((m) => m !== requestedModel)];
+    let lastErr: any = null;
 
-      // Implement timeout/cancellation using Promise.race
-      const apiCall = model.generateContent(prompt);
+    for (const modelName of modelsToTry) {
+      let keyAttempts = 0;
+      const maxKeyAttempts = this.keys.length;
 
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('AI_REQUEST_TIMEOUT')), context.timeoutMs);
-      });
+      while (keyAttempts < maxKeyAttempts) {
+        keyAttempts++;
+        const { genAi } = this.getGenAi();
 
-      const response = await Promise.race([apiCall, timeoutPromise]);
-      const text = response.response.text();
-      const usage = response.response.usageMetadata;
+        try {
+          const model = genAi.getGenerativeModel({
+            model: modelName,
+            systemInstruction,
+            generationConfig: {
+              responseMimeType: 'application/json',
+            },
+          });
 
-      if (!text) {
-        throw new Error('AI_INVALID_RESPONSE');
+          const apiCall = model.generateContent(prompt);
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('AI_REQUEST_TIMEOUT')), context.timeoutMs);
+          });
+
+          const response = await Promise.race([apiCall, timeoutPromise]);
+          const text = response.response.text();
+          const usage = response.response.usageMetadata;
+
+          if (!text) {
+            throw new Error('AI_INVALID_RESPONSE');
+          }
+
+          let parsed: any;
+          try {
+            parsed = JSON.parse(text);
+            if (Array.isArray(parsed)) {
+              parsed = { sourceClaims: parsed };
+            }
+            if (parsed && typeof parsed === 'object') {
+              if (parsed.draft && typeof parsed.draft === 'object') parsed = parsed.draft;
+              if (parsed.data && typeof parsed.data === 'object') parsed = parsed.data;
+              if (parsed.facts && typeof parsed.facts === 'object') parsed = parsed.facts;
+
+              if (!parsed.headline && parsed.title) parsed.headline = String(parsed.title);
+              if (!parsed.hook && (parsed.summary || parsed.intro || parsed.lead)) {
+                parsed.hook = String(parsed.summary || parsed.intro || parsed.lead);
+              }
+              if (!parsed.body && (parsed.content || parsed.text || parsed.article)) {
+                parsed.body = String(parsed.content || parsed.text || parsed.article);
+              }
+            }
+          } catch {
+            throw new Error('AI_INVALID_RESPONSE');
+          }
+
+          const validated = schema.parse(parsed);
+
+          return {
+            data: validated as T,
+            inputTokens: usage?.promptTokenCount || 0,
+            outputTokens: usage?.candidatesTokenCount || 0,
+          };
+        } catch (err: any) {
+          lastErr = err;
+          const isRateLimit = err?.status === 429 || (err?.message && (String(err.message).includes('429') || String(err.message).includes('RESOURCE_EXHAUSTED') || String(err.message).includes('quota') || String(err.message).includes('limit')));
+          if (isRateLimit) {
+            this.rotateKey();
+            await new Promise((r) => setTimeout(r, 300));
+            continue;
+          }
+          if (err.message === 'AI_REQUEST_TIMEOUT') {
+            throw err;
+          }
+          if (err.name === 'ZodError') {
+            console.error('Gemini ZodError:', JSON.stringify(err.issues, null, 2));
+            throw new Error('AI_SCHEMA_VALIDATION_FAILED');
+          }
+          break;
+        }
       }
-
-      let parsed: any;
-      try {
-        parsed = JSON.parse(text);
-      } catch {
-        throw new Error('AI_INVALID_RESPONSE');
-      }
-
-      const validated = schema.parse(parsed);
-
-      return {
-        data: validated as T,
-        inputTokens: usage?.promptTokenCount || 0,
-        outputTokens: usage?.candidatesTokenCount || 0,
-      };
-    } catch (err: any) {
-      if (err.message === 'AI_REQUEST_TIMEOUT') {
-        throw err;
-      }
-      if (err.status === 429) {
-        throw new Error('AI_RATE_LIMITED');
-      }
-      if (err.name === 'ZodError') {
-        throw new Error('AI_SCHEMA_VALIDATION_FAILED');
-      }
-      throw new Error(`AI_PROVIDER_UNAVAILABLE: ${err.message}`);
     }
+
+    if (lastErr?.status === 429 || (lastErr?.message && String(lastErr.message).includes('RESOURCE_EXHAUSTED'))) {
+      throw new Error('AI_RATE_LIMITED');
+    }
+    throw new Error(`AI_PROVIDER_UNAVAILABLE: ${lastErr?.message || 'All models and keys exhausted'}`);
   }
 
   async extractFacts(
     input: FactExtractionInput,
     context: AiRequestContext
   ): Promise<AiResult<FactSheet>> {
-    const start = Date.now();
-    const systemInstruction = `You are a fact extraction bot. Extract all concrete facts from the provided source articles. Do not add outside information. Return a structured JSON matching the requested schema.`;
-    const prompt = `Sources to extract:\n${JSON.stringify(input.sources)}`;
+    const startTime = Date.now();
+    const systemPrompt = `You are a professional fact-checker AI. Extract all verifiable facts, claims, entities, dates, numbers, quotes, and scores from the provided articles.
+Return ONLY valid JSON matching this exact structure:
+{
+  "articleIds": ["string"],
+  "sourceClaims": [{"claimId": "string", "text": "string", "sourceArticleId": "string", "evidenceExcerpt": "string", "confidence": 0.9, "status": "CONFIRMED"}],
+  "entities": [{"canonicalName": "string", "type": "PERSON", "aliases": []}],
+  "dates": [{"value": "string", "context": "string", "sourceArticleIds": ["string"], "confidence": 0.9}],
+  "numbers": [{"value": "string", "unit": "string", "context": "string", "sourceArticleIds": ["string"], "confidence": 0.9}],
+  "scores": [],
+  "quotes": [],
+  "conflicts": [],
+  "uncertaintyFlags": []
+}`;
 
-    const modelName = process.env.AI_FACT_EXTRACTION_MODEL || 'gemini-1.5-flash';
-    const { data, inputTokens, outputTokens } = await this.callGemini<FactSheet>(
+    const prompt = `Articles to analyze:\n${JSON.stringify(input.sources, null, 2)}`;
+    const result = await this.callGemini<FactSheet>(
       prompt,
-      systemInstruction,
-      modelName,
+      systemPrompt,
+      'gemini-2.5-flash',
       FactSheetSchema,
       context
     );
 
-    // Approximate cost: 0.075$ per 1M input tokens, 0.3$ per 1M output tokens (minor is 1/10000 of dollar)
-    const cost = Math.ceil((inputTokens * 0.075 + outputTokens * 0.3) / 100);
-
     return {
-      data,
+      data: result.data,
       provider: 'gemini',
-      model: modelName,
-      inputTokens,
-      outputTokens,
-      estimatedCostMinor: cost,
+      model: 'gemini-2.5-flash',
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      estimatedCostMinor: 0,
       currency: 'USD',
-      durationMs: Date.now() - start,
+      durationMs: Date.now() - startTime,
     };
   }
 
@@ -120,33 +192,43 @@ export class GeminiAiProvider implements AiProvider {
     input: DraftGenerationInput,
     context: AiRequestContext
   ): Promise<AiResult<GeneratedDraft>> {
-    const start = Date.now();
-    const systemInstruction = `You are an editorial assistant writing a Facebook post draft.
-Use ONLY the supplied fact sheet. Respect tone, audience and writing rules from brand settings.
-Forbidden phrases MUST NOT appear in the draft. Return valid structured JSON matching the draft schema.`;
+    const startTime = Date.now();
+    const systemPrompt = `You are an expert social media copywriter. Generate a high-engaging post in Vietnamese based strictly on the provided factsheet.
+Return ONLY valid JSON matching this exact structure:
+{
+  "language": "vi",
+  "headline": "Tiêu đề hấp dẫn",
+  "hook": "Mở đầu lôi cuốn thu hút người đọc",
+  "body": "Nội dung bài viết chi tiết dựa trên tin tức thực tế...",
+  "whyItMatters": "Tại sao tin này quan trọng",
+  "discussionQuestion": "Câu hỏi thảo luận cho độc giả?",
+  "hashtags": ["TinTuc", "NoiBat"],
+  "attributionLine": "Nguồn: Tổng hợp",
+  "recommendedLink": "",
+  "contentType": "SUMMARY",
+  "sourceClaimIds": [],
+  "riskFlags": [],
+  "confidence": 0.95
+}`;
 
-    const prompt = `Fact Sheet:\n${JSON.stringify(input.factSheet)}\n\nBrand Rules:\n${JSON.stringify(input.brandRules)}\nContent Type: ${input.contentType}\nLanguage: ${input.language}`;
-
-    const modelName = process.env.AI_DRAFT_GENERATION_MODEL || 'gemini-1.5-flash';
-    const { data, inputTokens, outputTokens } = await this.callGemini<GeneratedDraft>(
+    const prompt = `FactSheet:\n${JSON.stringify(input.factSheet, null, 2)}\n\nBrand Rules:\n${JSON.stringify(input.brandRules, null, 2)}`;
+    const result = await this.callGemini<GeneratedDraft>(
       prompt,
-      systemInstruction,
-      modelName,
+      systemPrompt,
+      'gemini-2.5-flash',
       GeneratedDraftSchema,
       context
     );
 
-    const cost = Math.ceil((inputTokens * 0.075 + outputTokens * 0.3) / 100);
-
     return {
-      data,
+      data: result.data,
       provider: 'gemini',
-      model: modelName,
-      inputTokens,
-      outputTokens,
-      estimatedCostMinor: cost,
+      model: 'gemini-2.5-flash',
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      estimatedCostMinor: 0,
       currency: 'USD',
-      durationMs: Date.now() - start,
+      durationMs: Date.now() - startTime,
     };
   }
 
@@ -154,30 +236,41 @@ Forbidden phrases MUST NOT appear in the draft. Return valid structured JSON mat
     input: DraftVerificationInput,
     context: AiRequestContext
   ): Promise<AiResult<DraftVerificationResult>> {
-    const start = Date.now();
-    const systemInstruction = `You are an independent editorial verifier. Compare the generated draft against the fact sheet. Detect score mismatches, date mismatches, fabricated quotes, or unsupported claims. Return structured JSON matching the verification schema.`;
-    const prompt = `Fact Sheet:\n${JSON.stringify(input.factSheet)}\n\nGenerated Draft:\n${JSON.stringify(input.generatedDraft)}`;
+    const startTime = Date.now();
+    const systemPrompt = `You are a compliance AI validator. Verify if the generated social post strictly matches the fact sheet without hallucination.
+Return ONLY valid JSON matching this exact structure:
+{
+  "passed": true,
+  "blockingErrors": [],
+  "warnings": [],
+  "unsupportedClaims": [],
+  "changedEntities": [],
+  "changedDates": [],
+  "changedNumbers": [],
+  "changedScores": [],
+  "quoteIssues": [],
+  "similarityScore": 0.95,
+  "riskFlags": []
+}`;
 
-    const modelName = process.env.AI_DRAFT_VERIFICATION_MODEL || 'gemini-1.5-flash';
-    const { data, inputTokens, outputTokens } = await this.callGemini<DraftVerificationResult>(
+    const prompt = `Draft:\n${JSON.stringify(input.generatedDraft, null, 2)}\n\nFactSheet:\n${JSON.stringify(input.factSheet, null, 2)}`;
+    const result = await this.callGemini<DraftVerificationResult>(
       prompt,
-      systemInstruction,
-      modelName,
+      systemPrompt,
+      'gemini-2.5-flash',
       DraftVerificationResultSchema,
       context
     );
 
-    const cost = Math.ceil((inputTokens * 0.075 + outputTokens * 0.3) / 100);
-
     return {
-      data,
+      data: result.data,
       provider: 'gemini',
-      model: modelName,
-      inputTokens,
-      outputTokens,
-      estimatedCostMinor: cost,
+      model: 'gemini-2.5-flash',
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      estimatedCostMinor: 0,
       currency: 'USD',
-      durationMs: Date.now() - start,
+      durationMs: Date.now() - startTime,
     };
   }
 }

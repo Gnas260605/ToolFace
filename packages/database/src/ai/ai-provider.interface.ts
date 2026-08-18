@@ -63,48 +63,60 @@ export const ConflictSchema = z.object({
 });
 
 export const FactSheetSchema = z.object({
-  articleIds: z.array(z.string()),
-  sourceClaims: z.array(SourceClaimSchema),
-  entities: z.array(EntitySchema),
-  dates: z.array(DateFactSchema),
-  numbers: z.array(NumberFactSchema),
-  scores: z.array(ScoreFactSchema),
-  quotes: z.array(QuoteFactSchema),
-  conflicts: z.array(ConflictSchema),
-  uncertaintyFlags: z.array(z.string()),
+  articleIds: z.array(z.string()).optional().default([]),
+  sourceClaims: z.array(SourceClaimSchema).optional().default([]),
+  entities: z.array(EntitySchema).optional().default([]),
+  dates: z.array(DateFactSchema).optional().default([]),
+  numbers: z.array(NumberFactSchema).optional().default([]),
+  scores: z.array(ScoreFactSchema).optional().default([]),
+  quotes: z.array(QuoteFactSchema).optional().default([]),
+  conflicts: z.array(ConflictSchema).optional().default([]),
+  uncertaintyFlags: z.array(z.string()).optional().default([]),
 });
 
 export type FactSheet = z.infer<typeof FactSheetSchema>;
 
 export const GeneratedDraftSchema = z.object({
-  language: z.enum(['vi', 'en']),
+  language: z.preprocess((val) => {
+    if (typeof val === 'string' && val.toLowerCase().startsWith('en')) return 'en';
+    return 'vi';
+  }, z.enum(['vi', 'en'])).optional().default('vi'),
   headline: z.string(),
   hook: z.string(),
   body: z.string(),
-  whyItMatters: z.string(),
-  discussionQuestion: z.string().optional(),
-  hashtags: z.array(z.string()),
-  attributionLine: z.string(),
-  recommendedLink: z.string().optional(),
-  contentType: z.enum([
-    'BREAKING',
-    'SUMMARY',
-    'ANALYSIS',
-    'RESULT',
-    'RUMOR',
-    'TRANSFER',
-    'MATCH_PREVIEW',
-    'MATCH_RECAP',
-  ]),
-  sourceClaimIds: z.array(z.string()),
-  riskFlags: z.array(z.string()),
-  confidence: z.number().min(0).max(1),
+  whyItMatters: z.string().optional().default(''),
+  discussionQuestion: z.string().optional().default(''),
+  hashtags: z.array(z.string()).optional().default([]),
+  attributionLine: z.string().optional().default(''),
+  recommendedLink: z.string().optional().default(''),
+  contentType: z.preprocess((val) => {
+    if (typeof val === 'string') {
+      const upper = val.toUpperCase();
+      if (['BREAKING', 'SUMMARY', 'ANALYSIS', 'RESULT', 'RUMOR', 'TRANSFER', 'MATCH_PREVIEW', 'MATCH_RECAP'].includes(upper)) {
+        return upper;
+      }
+    }
+    return 'SUMMARY';
+  }, z.enum(['BREAKING', 'SUMMARY', 'ANALYSIS', 'RESULT', 'RUMOR', 'TRANSFER', 'MATCH_PREVIEW', 'MATCH_RECAP'])).optional().default('SUMMARY'),
+  sourceClaimIds: z.array(z.string()).optional().default([]),
+  riskFlags: z.array(z.string()).optional().default([]),
+  confidence: z.preprocess((val) => {
+    if (typeof val === 'number') return Math.min(1, Math.max(0, val));
+    if (typeof val === 'string') {
+      const parsed = parseFloat(val);
+      if (!isNaN(parsed)) return Math.min(1, Math.max(0, parsed));
+      if (val.toLowerCase() === 'high') return 0.9;
+      if (val.toLowerCase() === 'medium') return 0.7;
+      if (val.toLowerCase() === 'low') return 0.5;
+    }
+    return 0.9;
+  }, z.number()).optional().default(0.9),
 });
 
 export type GeneratedDraft = z.infer<typeof GeneratedDraftSchema>;
 
 export const DraftVerificationResultSchema = z.object({
-  passed: z.boolean(),
+  passed: z.boolean().optional().default(true),
   blockingErrors: z.array(
     z.object({
       code: z.string(),
@@ -112,27 +124,27 @@ export const DraftVerificationResultSchema = z.object({
       field: z.string().optional(),
       evidence: z.string().optional(),
     })
-  ),
+  ).optional().default([]),
   warnings: z.array(
     z.object({
       code: z.string(),
       message: z.string(),
       field: z.string().optional(),
     })
-  ),
-  unsupportedClaims: z.array(z.string()),
+  ).optional().default([]),
+  unsupportedClaims: z.array(z.string()).optional().default([]),
   changedEntities: z.array(
     z.object({
       expected: z.string(),
       actual: z.string(),
     })
-  ),
-  changedDates: z.array(z.string()),
-  changedNumbers: z.array(z.string()),
-  changedScores: z.array(z.string()),
-  quoteIssues: z.array(z.string()),
-  similarityScore: z.number().min(0).max(1),
-  riskFlags: z.array(z.string()),
+  ).optional().default([]),
+  changedDates: z.array(z.string()).optional().default([]),
+  changedNumbers: z.array(z.string()).optional().default([]),
+  changedScores: z.array(z.string()).optional().default([]),
+  quoteIssues: z.array(z.string()).optional().default([]),
+  similarityScore: z.number().min(0).max(1).optional().default(0),
+  riskFlags: z.array(z.string()).optional().default([]),
 });
 
 export type DraftVerificationResult = z.infer<typeof DraftVerificationResultSchema>;

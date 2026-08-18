@@ -16,7 +16,7 @@ import { NotificationEmailProcessor } from './processors/notification-email.proc
 import { OutboxRelayProcessor } from './processors/outbox-relay.processor';
 import { DatabaseService } from './common/database.service';
 import { getServerEnv } from '@newsflow/config';
-import { GeminiAiProvider, MockAiProvider } from '@newsflow/database';
+import { GeminiAiProvider, OpenAiProvider, OpenRouterAiProvider, FallbackAiProvider, AiProvider } from '@newsflow/database';
 
 @Module({
   imports: [
@@ -59,13 +59,54 @@ import { GeminiAiProvider, MockAiProvider } from '@newsflow/database';
     OutboxRelayProcessor,
     {
       provide: 'AiProvider',
-      useFactory: () => {
-        const providerType = process.env.AI_PROVIDER || 'mock';
-        if (providerType === 'gemini') {
-          return new GeminiAiProvider(process.env.GEMINI_API_KEY || '');
+      useFactory: (db: DatabaseService) => {
+        const primaryType = process.env.AI_PROVIDER || 'gemini';
+        const available: { type: string; provider: AiProvider; key?: string }[] = [];
+
+        if (process.env.GEMINI_API_KEY) {
+          available.push({
+            type: 'gemini',
+            provider: new GeminiAiProvider(process.env.GEMINI_API_KEY),
+            key: process.env.GEMINI_API_KEY,
+          });
         }
-        return new MockAiProvider();
+        if (process.env.OPENAI_API_KEY) {
+          available.push({
+            type: 'openai',
+            provider: new OpenAiProvider(process.env.OPENAI_API_KEY),
+            key: process.env.OPENAI_API_KEY,
+          });
+        }
+        if (process.env.OPENROUTER_API_KEY) {
+          available.push({
+            type: 'openrouter',
+            provider: new OpenRouterAiProvider(process.env.OPENROUTER_API_KEY),
+            key: process.env.OPENROUTER_API_KEY,
+          });
+        }
+
+        const activeProviders = available.filter((p) => p.type === primaryType || !!p.key);
+        const hasPrimary = activeProviders.some((p) => p.type === primaryType);
+        if (!hasPrimary) {
+          if (primaryType === 'gemini') {
+            activeProviders.push({ type: 'gemini', provider: new GeminiAiProvider(process.env.GEMINI_API_KEY || '') });
+          } else if (primaryType === 'openai') {
+            activeProviders.push({ type: 'openai', provider: new OpenAiProvider(process.env.OPENAI_API_KEY || '') });
+          } else if (primaryType === 'openrouter') {
+            activeProviders.push({ type: 'openrouter', provider: new OpenRouterAiProvider(process.env.OPENROUTER_API_KEY || '') });
+          }
+        }
+
+        activeProviders.sort((a, b) => {
+          if (a.type === primaryType) return -1;
+          if (b.type === primaryType) return 1;
+          return 0;
+        });
+
+        const providersList = activeProviders.map((p) => ({ type: p.type, provider: p.provider }));
+        return new FallbackAiProvider(providersList, db);
       },
+      inject: [DatabaseService],
     },
   ],
 })

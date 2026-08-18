@@ -1,6 +1,18 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 type PageProps = {
   params: { workspaceSlug: string };
 };
+
+async function safeJson<T>(res: Response, fallback: T): Promise<T> {
+  if (!res.ok) return fallback;
+  try {
+    const text = await res.text();
+    if (!text || !text.trim()) return fallback;
+    return JSON.parse(text) as T;
+  } catch (_e) {
+    return fallback;
+  }
+}
 
 async function getBillingData(workspaceId: string) {
   const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
@@ -16,8 +28,8 @@ async function getBillingData(workspaceId: string) {
   ]);
 
   return {
-    subscription: subscriptionRes.ok ? await subscriptionRes.json() : null,
-    usage: usageRes.ok ? await usageRes.json() : null,
+    subscription: await safeJson<any>(subscriptionRes, null),
+    usage: await safeJson<any>(usageRes, null),
   };
 }
 
