@@ -13,22 +13,22 @@ export function Input({ label, hint, error, icon, className = '', id, ...props }
   return (
     <div className="space-y-1.5">
       {label && (
-        <label htmlFor={inputId} className="block text-xs font-medium text-zinc-400 tracking-wide">
+        <label htmlFor={inputId} className="block text-xs font-bold text-zinc-400 tracking-wide font-display">
           {label}
         </label>
       )}
       <div className="relative">
         {icon && (
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500">{icon}</span>
+          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500">{icon}</span>
         )}
         <input
           id={inputId}
           className={`
-            w-full rounded-lg bg-zinc-900/80 border border-zinc-800/80
-            px-3.5 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-600
+            w-full rounded-xl bg-zinc-950/70 border border-zinc-800
+            px-3.5 py-2.5 text-xs text-zinc-100 placeholder:text-zinc-600
             transition-all duration-200
-            hover:border-zinc-700 focus:border-accent-500/50 focus:ring-1 focus:ring-accent-500/20
-            focus:outline-none
+            hover:border-zinc-700 focus:border-accent-500/80 focus:ring-1 focus:ring-accent-500/30
+            focus:outline-none font-sans
             disabled:opacity-50 disabled:cursor-not-allowed
             ${icon ? 'pl-10' : ''}
             ${error ? 'border-rose-500/50 focus:border-rose-500/50 focus:ring-rose-500/20' : ''}
@@ -37,8 +37,8 @@ export function Input({ label, hint, error, icon, className = '', id, ...props }
           {...props}
         />
       </div>
-      {hint && !error && <p className="text-[11px] text-zinc-600">{hint}</p>}
-      {error && <p className="text-[11px] text-rose-400">{error}</p>}
+      {hint && !error && <p className="text-[11px] text-zinc-500 font-sans">{hint}</p>}
+      {error && <p className="text-[11px] text-rose-400 font-sans">{error}</p>}
     </div>
   );
 }
@@ -55,29 +55,29 @@ export function Select({ label, hint, options, className = '', id, ...props }: S
   return (
     <div className="space-y-1.5">
       {label && (
-        <label htmlFor={selectId} className="block text-xs font-medium text-zinc-400 tracking-wide">
+        <label htmlFor={selectId} className="block text-xs font-bold text-zinc-400 tracking-wide font-display">
           {label}
         </label>
       )}
       <select
         id={selectId}
         className={`
-          w-full rounded-lg bg-zinc-900/80 border border-zinc-800/80
-          px-3.5 py-2.5 text-sm text-zinc-100
+          w-full rounded-xl bg-zinc-950/70 border border-zinc-800
+          px-3.5 py-2.5 text-xs text-zinc-100 font-sans
           transition-all duration-200
-          hover:border-zinc-700 focus:border-accent-500/50 focus:ring-1 focus:ring-accent-500/20
+          hover:border-zinc-700 focus:border-accent-500/80 focus:ring-1 focus:ring-accent-500/30
           focus:outline-none appearance-none cursor-pointer
           ${className}
         `}
         {...props}
       >
         {options.map((opt) => (
-          <option key={opt.value} value={opt.value}>
+          <option key={opt.value} value={opt.value} className="bg-zinc-900 text-zinc-200">
             {opt.label}
           </option>
         ))}
       </select>
-      {hint && <p className="text-[11px] text-zinc-600">{hint}</p>}
+      {hint && <p className="text-[11px] text-zinc-500 font-sans">{hint}</p>}
     </div>
   );
 }

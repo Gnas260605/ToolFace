@@ -248,13 +248,20 @@ export default function WorkspaceArticlesPage() {
   const isReadonly = role === 'VIEWER';
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
       {/* Header & Filter Controls */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-zinc-800/40 pb-5">
         <div>
-          <p className="text-[10px] font-semibold tracking-[0.2em] uppercase text-accent-400">Tin Tức Thu Thập</p>
-          <h1 className="font-display italic text-2xl font-bold text-zinc-100 tracking-tight">Luồng tin tức</h1>
-          <p className="text-xs text-zinc-500 mt-1">Danh sách tin tức tự động bóc tách từ các trang báo & RSS feed.</p>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-accent-400 animate-pulse" />
+            <p className="text-[10px] font-bold tracking-[0.22em] uppercase text-accent-400 font-display">TIN TỨC THU THẬP REAL-TIME</p>
+          </div>
+          <h1 className="font-display text-2xl font-extrabold text-zinc-100 tracking-tight flex items-center gap-2">
+            Luồng tin tức
+          </h1>
+          <p className="text-xs text-zinc-400 mt-1 font-sans">
+            Danh sách tin tức tự động bóc tách từ các trang báo & RSS feed chính thống.
+          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3 self-start md:self-auto">
@@ -262,70 +269,76 @@ export default function WorkspaceArticlesPage() {
           <button
             onClick={handleScoreViralBatch}
             disabled={scoringViral}
-            className="px-3.5 py-1.5 bg-gradient-to-r from-amber-500 via-orange-500 to-rose-600 hover:from-amber-400 hover:to-rose-500 text-white rounded-xl text-xs font-bold transition shadow-md shadow-rose-950/40 disabled:opacity-50 flex items-center gap-1.5"
+            className="btn-shimmer px-4 py-2 bg-gradient-to-r from-amber-500 via-orange-500 to-rose-600 hover:from-amber-400 hover:to-rose-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-rose-950/50 hover:shadow-rose-900/60 disabled:opacity-50 flex items-center gap-2 font-display"
           >
             {scoringViral ? (
               <>
                 <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                <span>Đang chấm điểm AI...</span>
+                <span>AI Đang Chấm Điểm...</span>
               </>
             ) : (
               <>
-                <span>🔥</span>
+                <span className="text-sm">🔥</span>
                 <span>Chấm Điểm Viral (AI)</span>
               </>
             )}
           </button>
 
           {/* Role Switcher */}
-          <div className="flex items-center space-x-2 bg-surface-raised border border-zinc-800/60 rounded-xl px-3 py-1.5">
-            <span className="text-[10px] uppercase font-bold text-zinc-500">Vai trò:</span>
+          <div className="flex items-center space-x-2 bg-zinc-900/80 border border-zinc-800/60 rounded-xl px-3 py-1.5 shadow-sm">
+            <span className="text-[10px] uppercase font-bold text-zinc-500 font-display">Vai trò:</span>
             <select
               value={role}
               onChange={(e) => setRole(e.target.value as any)}
-              className="bg-transparent text-xs font-semibold text-accent-400 focus:outline-none cursor-pointer"
+              className="bg-transparent text-xs font-bold text-accent-300 focus:outline-none cursor-pointer font-sans"
             >
-              <option value="OWNER">OWNER (Quản trị)</option>
-              <option value="EDITOR">EDITOR (Biên tập)</option>
-              <option value="VIEWER">VIEWER (Chỉ xem)</option>
+              <option value="OWNER" className="bg-zinc-900 text-zinc-200">OWNER (Quản trị)</option>
+              <option value="EDITOR" className="bg-zinc-900 text-zinc-200">EDITOR (Biên tập)</option>
+              <option value="VIEWER" className="bg-zinc-900 text-zinc-200">VIEWER (Chỉ xem)</option>
             </select>
           </div>
         </div>
       </div>
 
       {/* Filter Panel */}
-      <div className="p-4 rounded-xl bg-surface-raised border border-zinc-800/50 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Tìm kiếm</label>
+      <div className="p-4 rounded-2xl bg-surface-raised/80 border border-zinc-800/60 shadow-lg backdrop-blur-md grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider font-display flex items-center gap-1">
+            🔍 Tìm kiếm
+          </label>
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Nhập từ khóa tiêu đề..."
-            className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-xs focus:outline-none focus:border-accent-500 text-zinc-100 placeholder:text-zinc-600"
+            placeholder="Từ khóa tiêu đề..."
+            className="w-full px-3 py-2 rounded-xl bg-zinc-950/70 border border-zinc-800 text-xs focus:outline-none focus:border-accent-500/80 focus:ring-1 focus:ring-accent-500/50 text-zinc-100 placeholder:text-zinc-600 transition"
           />
         </div>
 
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Nguồn tin</label>
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider font-display flex items-center gap-1">
+            📰 Nguồn tin
+          </label>
           <select
             value={selectedSource}
             onChange={(e) => setSelectedSource(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-xs focus:outline-none focus:border-accent-500 text-zinc-100"
+            className="w-full px-3 py-2 rounded-xl bg-zinc-950/70 border border-zinc-800 text-xs focus:outline-none focus:border-accent-500/80 text-zinc-100 transition cursor-pointer"
           >
-            <option value="">Tất cả nguồn tin</option>
+            <option value="">Tất cả nguồn tin ({sourcesList.length})</option>
             {sourcesList.map((s) => (
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
           </select>
         </div>
 
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Chuyên mục</label>
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider font-display flex items-center gap-1">
+            🏷️ Chuyên mục
+          </label>
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-xs focus:outline-none focus:border-accent-500 text-zinc-100"
+            className="w-full px-3 py-2 rounded-xl bg-zinc-950/70 border border-zinc-800 text-xs focus:outline-none focus:border-accent-500/80 text-zinc-100 transition cursor-pointer"
           >
             <option value="">Tất cả chuyên mục</option>
             <option value="football">Bóng đá / Football</option>
@@ -334,12 +347,14 @@ export default function WorkspaceArticlesPage() {
           </select>
         </div>
 
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Mức rủi ro</label>
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider font-display flex items-center gap-1">
+            ⚠️ Mức rủi ro
+          </label>
           <select
             value={selectedRisk}
             onChange={(e) => setSelectedRisk(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-xs focus:outline-none focus:border-accent-500 text-zinc-100"
+            className="w-full px-3 py-2 rounded-xl bg-zinc-950/70 border border-zinc-800 text-xs focus:outline-none focus:border-accent-500/80 text-zinc-100 transition cursor-pointer"
           >
             <option value="">Tất cả rủi ro</option>
             <option value="LOW">LOW (Bài mới / An toàn)</option>
@@ -356,73 +371,94 @@ export default function WorkspaceArticlesPage() {
               setSelectedRisk('');
               setSearch('');
             }}
-            className="w-full py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium text-xs rounded-lg transition"
+            className="w-full py-2 bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 font-semibold text-xs rounded-xl transition border border-zinc-700/40 font-sans"
           >
-            Xóa bộ lọc
+            ✕ Xóa bộ lọc
           </button>
         </div>
       </div>
 
       {error && (
-        <div className="p-3.5 rounded-xl bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs flex items-center justify-between">
-          <span>{error}</span>
-          <button onClick={() => setError(null)} className="text-zinc-500 hover:text-zinc-300">✕</button>
+        <div className="p-4 rounded-2xl bg-rose-950/40 border border-rose-500/40 text-rose-200 text-xs flex items-center justify-between shadow-lg">
+          <span className="font-medium">⚠️ {error}</span>
+          <button onClick={() => setError(null)} className="text-zinc-400 hover:text-zinc-200 font-bold px-2">✕</button>
         </div>
       )}
 
       {/* Articles Feed List */}
-      <div className="space-y-3">
-        {articles.length === 0 && !loading ? (
-          <div className="text-center py-16 rounded-xl bg-surface-raised border border-zinc-800/40">
-            <h3 className="text-sm font-bold text-zinc-300">Không tìm thấy bài viết nào</h3>
-            <p className="text-xs text-zinc-500 mt-1">Hãy quét thêm nguồn tin cấp hoặc xóa bộ lọc để xem toàn bộ tin tức.</p>
+      <div className="space-y-3.5">
+        {loading && articles.length === 0 ? (
+          <div className="space-y-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="p-5 rounded-2xl bg-surface-raised/60 border border-zinc-800/40 space-y-3 shimmer">
+                <div className="h-4 w-1/4 bg-zinc-800/60 rounded" />
+                <div className="h-6 w-3/4 bg-zinc-800/80 rounded" />
+                <div className="h-4 w-full bg-zinc-800/40 rounded" />
+              </div>
+            ))}
+          </div>
+        ) : articles.length === 0 ? (
+          <div className="text-center py-20 rounded-2xl bg-surface-raised/40 border border-zinc-800/40 space-y-3">
+            <div className="text-3xl">📡</div>
+            <h3 className="text-sm font-bold text-zinc-200 font-display">Không tìm thấy bài viết nào</h3>
+            <p className="text-xs text-zinc-500 max-w-md mx-auto">Hãy thử thay đổi từ khóa tìm kiếm hoặc bấm nút "Xóa bộ lọc" để cập nhật dữ liệu mới nhất.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-3.5">
             {articles.map((article) => {
               const clusterInfo = article.clusterArticles?.[0];
               const isDuplicate = article.riskLevel === 'MEDIUM';
+              const viralScore = article.viralScore;
+
+              let borderClass = 'viral-border-muted';
+              if (viralScore !== null && viralScore !== undefined) {
+                if (viralScore >= 80) borderClass = 'viral-border-hot';
+                else if (viralScore >= 60) borderClass = 'viral-border-warm';
+                else borderClass = 'viral-border-cool';
+              }
 
               return (
                 <div
                   key={article.id}
-                  className={`p-5 rounded-xl bg-surface-raised border transition-all duration-200 hover:border-zinc-700/60 ${
-                    isDuplicate ? 'border-amber-500/30' : 'border-zinc-800/60'
-                  }`}
+                  className={`p-5 rounded-2xl bg-surface-raised border border-zinc-800/60 ${borderClass} card-hover transition-all duration-200 relative group overflow-hidden shadow-md`}
                 >
                   <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
-                    <div className="space-y-2 flex-1">
+                    <div className="space-y-2.5 flex-1 min-w-0">
                       {/* Meta badges */}
                       <div className="flex flex-wrap items-center gap-2">
-                        {article.viralScore !== null && article.viralScore !== undefined && (
+                        {viralScore !== null && viralScore !== undefined && (
                           <span
-                            className={`px-2.5 py-0.5 rounded text-[10px] font-bold border flex items-center gap-1 ${
-                              article.viralScore >= 80
-                                ? 'bg-rose-950/50 text-rose-300 border-rose-500/50 shadow-sm shadow-rose-950/50'
-                                : article.viralScore >= 60
-                                ? 'bg-amber-950/50 text-amber-300 border-amber-500/50'
-                                : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold border flex items-center gap-1.5 font-display ${
+                              viralScore >= 80
+                                ? 'bg-rose-950/80 text-rose-300 border-rose-500/60 score-hot shadow-sm'
+                                : viralScore >= 60
+                                ? 'bg-amber-950/70 text-amber-300 border-amber-500/50'
+                                : 'bg-indigo-950/50 text-indigo-300 border-indigo-500/40'
                             }`}
                             title={article.viralReason || ''}
                           >
-                            <span>{article.viralScore >= 80 ? '🔥' : article.viralScore >= 60 ? '⚡' : '⭐'}</span>
-                            <span>Viral {article.viralScore}/100</span>
-                            {article.viralCategory && <span className="opacity-75 font-normal">({article.viralCategory})</span>}
+                            <span className="text-xs">{viralScore >= 80 ? '🔥' : viralScore >= 60 ? '⚡' : '⭐'}</span>
+                            <span>VIRAL {viralScore}/100</span>
+                            {article.viralCategory && <span className="opacity-80 font-normal">({article.viralCategory})</span>}
                           </span>
                         )}
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-accent-500/10 text-accent-400 border border-accent-500/20">
+
+                        <span className="px-2.5 py-0.5 rounded-md text-[10px] font-bold bg-accent-500/10 text-accent-300 border border-accent-500/25 font-display">
                           {article.source.attributionName}
                         </span>
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-zinc-800 text-zinc-400">
+
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-zinc-800/80 text-zinc-400 border border-zinc-700/50">
                           {article.category}
                         </span>
+
                         {isDuplicate && (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                            Khớp trùng lặp
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 font-display">
+                            ⚠️ Khớp trùng lặp
                           </span>
                         )}
+
                         {clusterInfo && (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-500/10 text-sky-400 border border-sky-500/20">
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-sky-500/10 text-sky-300 border border-sky-500/20">
                             Chủ đề: {clusterInfo.cluster.canonicalTopic}
                           </span>
                         )}
@@ -431,30 +467,37 @@ export default function WorkspaceArticlesPage() {
                       {/* Title */}
                       <h3
                         onClick={() => handleOpenDetail(article.id)}
-                        className="text-base font-bold text-zinc-100 hover:text-accent-400 cursor-pointer transition line-clamp-2 leading-snug"
+                        className="text-[15px] font-bold text-zinc-100 hover:text-accent-300 cursor-pointer transition-colors leading-snug font-display line-clamp-2"
                       >
                         {decodeHtml(article.title)}
                       </h3>
 
                       {/* Viral Reason Tip */}
                       {article.viralReason && (
-                        <div className="p-2 rounded-lg bg-zinc-900/60 border border-zinc-800/80 text-[11px] text-zinc-400 flex items-start gap-1.5">
-                          <span className="text-amber-400 text-xs">💡</span>
-                          <span className="italic">{article.viralReason}</span>
+                        <div className="p-2.5 rounded-xl bg-amber-950/20 border border-amber-500/25 text-[11px] text-amber-200/90 flex items-start gap-2 shadow-inner">
+                          <span className="text-amber-400 text-xs shrink-0">💡</span>
+                          <span className="italic leading-relaxed font-sans">{article.viralReason}</span>
                         </div>
                       )}
 
                       {/* Excerpt */}
-                      <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed font-light">
+                      <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed font-normal">
                         {decodeHtml(article.contentExcerpt || article.summary || 'Không có bản tóm tắt nội dung...')}
                       </p>
 
                       {/* Footnotes */}
                       <div className="flex flex-wrap items-center gap-3 pt-1 text-[10px] text-zinc-500 font-mono">
-                        <span>Đăng: {new Date(article.publishedAt).toLocaleString('vi-VN')}</span>
+                        <span className="flex items-center gap-1">
+                          ⏱️ Đăng: {new Date(article.publishedAt).toLocaleString('vi-VN')}
+                        </span>
                         <span>•</span>
                         <span>Thu thập: {new Date(article.discoveredAt).toLocaleString('vi-VN')}</span>
-                        {article.author && <span>• Tác giả: {article.author}</span>}
+                        {article.author && (
+                          <>
+                            <span>•</span>
+                            <span>✍️ {article.author}</span>
+                          </>
+                        )}
                       </div>
                     </div>
 
@@ -464,7 +507,7 @@ export default function WorkspaceArticlesPage() {
                         <button
                           onClick={() => handleRewrite(article.id)}
                           disabled={creatingDraftId === article.id}
-                          className="px-3.5 py-2 bg-gradient-to-r from-accent-600 to-emerald-600 hover:from-accent-500 hover:to-emerald-500 text-white rounded-lg text-xs font-bold transition shadow-sm disabled:opacity-50 flex items-center justify-center gap-1.5"
+                          className="btn-shimmer px-4 py-2 bg-gradient-to-r from-accent-500 via-teal-500 to-emerald-600 hover:from-accent-400 hover:to-emerald-500 text-white rounded-xl text-xs font-bold transition shadow-md shadow-accent-950/40 disabled:opacity-50 flex items-center justify-center gap-1.5 font-display"
                         >
                           {creatingDraftId === article.id ? (
                             <>
@@ -473,7 +516,7 @@ export default function WorkspaceArticlesPage() {
                             </>
                           ) : (
                             <>
-                              <span>⚡</span>
+                              <span>✨</span>
                               <span>Tạo bản nháp AI</span>
                             </>
                           )}
@@ -483,18 +526,19 @@ export default function WorkspaceArticlesPage() {
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => handleOpenDetail(article.id)}
-                          className="flex-1 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-medium transition text-center"
+                          className="flex-1 px-3 py-1.5 bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-200 rounded-xl text-xs font-semibold transition text-center border border-zinc-700/40 font-sans"
                         >
-                          Xem chi tiết
+                          Chi tiết
                         </button>
                         <a
                           href={article.originalUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="px-2.5 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 rounded-lg text-xs font-medium transition border border-zinc-800"
+                          className="px-2.5 py-1.5 bg-zinc-900/90 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 rounded-xl text-xs font-medium transition border border-zinc-800 flex items-center gap-1 font-sans"
                           title="Đọc trang báo gốc"
                         >
-                          ↗️ Nguồn
+                          <span>Nguồn</span>
+                          <span className="text-[10px]">↗</span>
                         </a>
                       </div>
                     </div>
@@ -507,11 +551,11 @@ export default function WorkspaceArticlesPage() {
 
         {/* Load More */}
         {nextCursor && (
-          <div className="text-center pt-4">
+          <div className="text-center pt-6">
             <button
               onClick={() => fetchArticles(nextCursor, true)}
               disabled={loading}
-              className="px-6 py-2 bg-surface-raised hover:bg-zinc-800 border border-zinc-800 text-zinc-200 rounded-lg text-xs font-semibold transition disabled:opacity-50"
+              className="px-8 py-2.5 bg-surface-raised hover:bg-zinc-800/90 border border-zinc-800/80 text-zinc-200 rounded-xl text-xs font-bold transition-all disabled:opacity-50 font-display shadow-sm"
             >
               {loading ? 'Đang tải thêm...' : 'Tải thêm tin tức'}
             </button>

@@ -153,7 +153,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
       <aside
         className={`
           fixed top-0 left-0 h-full z-50 w-[260px]
-          bg-surface-sunken border-r border-zinc-800/40
+          sidebar-bg border-r border-zinc-800/40
           flex flex-col transition-transform duration-300 ease-out
           lg:translate-x-0 lg:relative lg:z-auto
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
@@ -162,12 +162,12 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
         {/* Logo */}
         <div className="h-14 px-5 flex items-center justify-between border-b border-zinc-800/30 shrink-0">
           <Link href="/" className="flex items-center gap-2.5 group">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-accent-500 to-emerald-600 flex items-center justify-center shadow-lg shadow-accent-500/10 group-hover:scale-105 transition-transform">
-              <span className="font-display text-white text-lg font-bold italic">T</span>
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-accent-400 via-accent-500 to-emerald-600 flex items-center justify-center shadow-lg shadow-accent-500/20 group-hover:scale-105 transition-transform duration-200">
+              <span className="font-display text-white text-lg font-bold italic tracking-tighter">T</span>
             </div>
             <div className="flex flex-col">
-              <span className="text-sm font-bold text-zinc-100 tracking-tight">ToolFace</span>
-              <span className="text-[9px] text-accent-400 font-medium tracking-widest uppercase">AI Platform</span>
+              <span className="text-sm font-bold text-zinc-100 tracking-tight font-display">ToolFace</span>
+              <span className="text-[9px] text-accent-400 font-semibold tracking-widest uppercase -mt-0.5">AI Platform</span>
             </div>
           </Link>
           <button onClick={() => setSidebarOpen(false)} className="lg:hidden text-zinc-500 hover:text-zinc-300">
@@ -176,15 +176,15 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
         </div>
 
         {/* Workspace Switcher */}
-        <div className="px-4 py-3 border-b border-zinc-800/20">
-          <button className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-zinc-900/60 border border-zinc-800/40 hover:bg-zinc-800/40 transition-colors group">
+        <div className="px-3.5 py-3 border-b border-zinc-800/20">
+          <button className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-zinc-900/80 border border-zinc-800/50 hover:border-zinc-700/60 transition-all group shadow-sm">
             <div className="flex items-center gap-2.5">
-              <div className="w-6 h-6 rounded bg-accent-900/40 flex items-center justify-center text-accent-400 text-[10px] font-bold">
+              <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-accent-900/60 to-accent-950/80 border border-accent-500/30 flex items-center justify-center text-accent-300 text-[11px] font-bold font-display">
                 {workspaceSlug.charAt(0).toUpperCase()}
               </div>
-              <span className="text-xs font-medium text-zinc-300 truncate max-w-[140px]">{workspaceSlug}</span>
+              <span className="text-xs font-semibold text-zinc-200 truncate max-w-[130px] font-sans">{workspaceSlug}</span>
             </div>
-            <span className="text-zinc-600 group-hover:text-zinc-400 transition-colors">{Icons.chevronDown}</span>
+            <span className="text-zinc-500 group-hover:text-zinc-300 transition-colors">{Icons.chevronDown}</span>
           </button>
         </div>
 
@@ -192,10 +192,10 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
         <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
           {navSections.map((section) => (
             <div key={section.title}>
-              <p className="px-3 mb-2 text-[10px] font-semibold text-zinc-600 tracking-[0.15em] uppercase">
+              <p className="px-3 mb-2 text-[9px] font-bold text-zinc-500 tracking-[0.18em] uppercase font-display">
                 {section.title}
               </p>
-              <div className="space-y-0.5">
+              <div className="space-y-1">
                 {section.items.map((item) => {
                   const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
                   return (
@@ -204,20 +204,23 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
                       href={item.href}
                       onClick={() => setSidebarOpen(false)}
                       className={`
-                        flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium
+                        relative flex items-center gap-3 px-3 py-2 rounded-xl text-[13px] font-medium
                         transition-all duration-150 group
                         ${isActive
-                          ? 'bg-accent-500/10 text-accent-300 shadow-sm'
-                          : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40'
+                          ? 'bg-accent-500/10 text-accent-300 shadow-sm border border-accent-500/20'
+                          : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/30 border border-transparent'
                         }
                       `}
                     >
-                      <span className={`transition-colors ${isActive ? 'text-accent-400' : 'text-zinc-600 group-hover:text-zinc-400'}`}>
+                      {isActive && (
+                        <span className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full bg-accent-400 shadow-[0_0_8px_rgba(45,212,191,0.6)]" />
+                      )}
+                      <span className={`transition-colors ${isActive ? 'text-accent-400' : 'text-zinc-500 group-hover:text-zinc-300'}`}>
                         {item.icon}
                       </span>
-                      <span>{item.name}</span>
+                      <span className="font-sans">{item.name}</span>
                       {item.badge && (
-                        <span className="ml-auto px-1.5 py-0.5 rounded text-[9px] font-bold bg-accent-500/10 text-accent-400">
+                        <span className="ml-auto px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-accent-500/20 text-accent-300 border border-accent-500/30">
                           {item.badge}
                         </span>
                       )}
@@ -229,15 +232,15 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
           ))}
         </nav>
 
-        {/* User */}
-        <div className="p-4 border-t border-zinc-800/30 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-accent-600 to-emerald-600 flex items-center justify-center text-white text-[11px] font-bold shadow-inner">
+        {/* User Footer */}
+        <div className="p-3.5 border-t border-zinc-800/30 shrink-0 bg-surface-sunken/60">
+          <div className="flex items-center gap-3 p-2 rounded-xl bg-zinc-900/40 border border-zinc-800/30">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-accent-600 via-accent-500 to-emerald-600 flex items-center justify-center text-white text-[11px] font-bold shadow-md shadow-accent-500/10">
               AD
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-zinc-200 truncate">Administrator</p>
-              <p className="text-[10px] text-zinc-600">Owner</p>
+              <p className="text-xs font-semibold text-zinc-200 truncate font-display">Administrator</p>
+              <p className="text-[10px] text-zinc-500 font-medium">Owner (Quản trị)</p>
             </div>
           </div>
         </div>
@@ -246,7 +249,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
       {/* ─── Main ─── */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Bar */}
-        <header className="h-14 border-b border-zinc-800/30 bg-surface-base/80 backdrop-blur-md sticky top-0 z-30 flex items-center justify-between px-6 shrink-0">
+        <header className="h-14 border-b border-zinc-800/40 bg-surface-base/80 backdrop-blur-xl sticky top-0 z-30 flex items-center justify-between px-6 shrink-0">
           {/* Left: Hamburger + Breadcrumb */}
           <div className="flex items-center gap-4">
             <button
@@ -255,14 +258,14 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
             >
               {Icons.menu}
             </button>
-            <div className="hidden sm:flex items-center gap-1.5 text-xs text-zinc-600">
-              <Link href={`/app/${workspaceSlug}/articles`} className="hover:text-zinc-400 transition-colors">
+            <div className="hidden sm:flex items-center gap-2 text-xs text-zinc-500">
+              <Link href={`/app/${workspaceSlug}/articles`} className="hover:text-zinc-300 transition-colors font-medium">
                 Workspace
               </Link>
               {breadcrumbs.map((crumb, i) => (
                 <React.Fragment key={i}>
-                  <span className="text-zinc-700">/</span>
-                  <span className={i === breadcrumbs.length - 1 ? 'text-zinc-300 font-medium' : 'text-zinc-500'}>
+                  <span className="text-zinc-600 font-semibold text-[10px]">›</span>
+                  <span className={i === breadcrumbs.length - 1 ? 'text-zinc-200 font-semibold font-display' : 'text-zinc-400'}>
                     {crumb}
                   </span>
                 </React.Fragment>
@@ -272,12 +275,12 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
 
           {/* Right: Status dot */}
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-900/60 border border-zinc-800/40">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-900/80 border border-zinc-800/60 shadow-inner">
               <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
               </span>
-              <span className="text-[10px] text-zinc-400 font-medium tracking-wide">Online</span>
+              <span className="text-[10px] text-zinc-300 font-semibold tracking-wide uppercase font-display">AutoPilot Online</span>
             </div>
           </div>
         </header>
