@@ -1,0 +1,21 @@
+{
+  "pageName": "Tên page của bạn",
+  "tone": "Gần gũi, sắc sảo, kể chuyện bằng chi tiết; không dạy đời",
+  "audience": "Người dùng Facebook Việt Nam 18-35 tuổi",
+  "language": "vi",
+  "headlineStyle": "IN HOA, dưới 90 ký tự, dùng chi tiết đắt giá",
+  "emojiPolicy": "LOW",
+  "writingRules": [
+    "Mỗi đoạn 1-2 câu",
+    "Luôn có đoạn 'vì sao đáng quan tâm'",
+    "Kết bằng câu hỏi tự nhiên"
+  ],
+  "forbiddenPhrases": [],
+  "defaultHashtags": ["#TinNong", "#XuHuong"],
+  "hashtagCount": { "min": 3, "max": 6 },
+  "editorialPolicy": {
+    "maximumSimilarityScore": 0.35,
+    "maximumQuoteWords": 25,
+    "maxHeadlineChars": 90
+  }
+}
