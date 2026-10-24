@@ -22,6 +22,18 @@ if [ ! -f .env.prod ]; then
     exit 1
 fi
 
+# 2b. Ensure nginx TLS certificate exists (never stored in git)
+SSL_DIR="infrastructure/nginx/ssl"
+if [ ! -f "$SSL_DIR/nginx.key" ] || [ ! -f "$SSL_DIR/nginx.crt" ]; then
+    echo ">>> No TLS certificate found, generating a self-signed one in $SSL_DIR..."
+    mkdir -p "$SSL_DIR"
+    openssl req -x509 -nodes -newkey rsa:2048 -days 365 \
+        -keyout "$SSL_DIR/nginx.key" -out "$SSL_DIR/nginx.crt" \
+        -subj "/CN=${SSL_COMMON_NAME:-localhost}"
+    chmod 600 "$SSL_DIR/nginx.key"
+fi
+mkdir -p infrastructure/nginx/logs
+
 # 3. Build and start containers
 echo ">>> Rebuilding and restarting containers..."
 docker compose --env-file .env.prod -f docker-compose.prod.yml down

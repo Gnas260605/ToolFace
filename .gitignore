@@ -58,3 +58,15 @@ infrastructure/docker/redis_data/
 # Temporary deploy archives and scripts
 project.tar.gz
 scratch/
+
+# Nginx TLS material and runtime logs (never commit; generated on the server)
+infrastructure/nginx/ssl/*
+!infrastructure/nginx/ssl/.gitkeep
+infrastructure/nginx/logs/*
+!infrastructure/nginx/logs/.gitkeep
+
+# Private keys and certificates anywhere in the repo
+*.key
+*.pem
+*.p12
+*.pfx
