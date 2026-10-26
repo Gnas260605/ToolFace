@@ -27,7 +27,7 @@ export const serverSchema = z.object({
   S3_SECRET_KEY: z.string(),
   S3_FORCE_PATH_STYLE: z.enum(['true', 'false']).default('true'),
   /** Endpoint browsers use for presigned download links, if different from S3_ENDPOINT. */
-  S3_PUBLIC_ENDPOINT: z.string().url().optional(),
+  S3_PUBLIC_URL: z.string().url().optional(),
   // Video Studio
   ANTHROPIC_API_KEY: z.string().optional(),
   VIDEO_PLANNER_MODEL: z.string().default('claude-sonnet-5-5'),

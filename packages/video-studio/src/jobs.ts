@@ -33,10 +33,13 @@ export interface VideoOutputRef {
   duration: number;
 }
 
-/** Idempotent BullMQ job ids: enqueueing the same step twice is a no-op. */
-export const planJobId = (videoJobId: string) => `plan__${videoJobId}`;
-export const renderJobId = (videoJobId: string, kind: Quality, revision: number) =>
-  `render__${videoJobId}__${kind}__r${revision}`;
+/**
+ * Idempotent BullMQ job ids: enqueueing the same step twice is a no-op.
+ * `attempt` changes only for a manual retry after a failure.
+ */
+export const planJobId = (videoJobId: string, attempt = 0) => `plan__${videoJobId}__a${attempt}`;
+export const renderJobId = (videoJobId: string, kind: Quality, revision: number, attempt = 0) =>
+  `render__${videoJobId}__${kind}__r${revision}__a${attempt}`;
 
 /** Retries for transient failures (network, API overload); input errors fail immediately. */
 export const VIDEO_JOB_ATTEMPTS = 3;

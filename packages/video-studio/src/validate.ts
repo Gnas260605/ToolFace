@@ -69,33 +69,34 @@ async function probe(file: string): Promise<ProbeResult> {
   return JSON.parse(out) as ProbeResult;
 }
 
+/** Messages are in Vietnamese: they are shown to end users as-is. */
 export async function validateImage(
   file: string,
   limits: InputLimits = DEFAULT_LIMITS,
+  label = 'Ảnh',
 ): Promise<void> {
-  const name = file.split(/[\\/]/).pop();
   const stat = await fs.stat(file);
   if (stat.size > limits.maxImageBytes) {
     throw new InputValidationError(
-      `Image ${name} is ${(stat.size / 1048576).toFixed(1)} MB (max ${limits.maxImageBytes / 1048576} MB)`,
+      `${label} nặng ${(stat.size / 1048576).toFixed(1)} MB (tối đa ${limits.maxImageBytes / 1048576} MB)`,
     );
   }
   let info: ProbeResult;
   try {
     info = await probe(file);
   } catch {
-    throw new InputValidationError(`Image ${name} could not be read`);
+    throw new InputValidationError(`${label} không đọc được — file có thể bị hỏng`);
   }
   const format = info.format?.format_name ?? '';
   const video = info.streams?.find((s) => s.codec_type === 'video');
   if (!IMAGE_FORMATS.has(format) || !video?.width || !video?.height) {
     throw new InputValidationError(
-      `${name} is not a supported image (JPG, PNG, WebP, BMP, GIF, TIFF)`,
+      `${label} không phải ảnh hợp lệ (chỉ nhận JPG, PNG, WebP, BMP, GIF, TIFF)`,
     );
   }
   if (Math.max(video.width, video.height) > limits.maxImageSide) {
     throw new InputValidationError(
-      `Image ${name} is ${video.width}×${video.height}; the longest side may be ${limits.maxImageSide}px`,
+      `${label} có kích thước ${video.width}×${video.height}; cạnh dài nhất tối đa ${limits.maxImageSide}px`,
     );
   }
 }
@@ -104,37 +105,34 @@ export async function validateAudio(
   file: string,
   limits: InputLimits = DEFAULT_LIMITS,
 ): Promise<void> {
-  const name = file.split(/[\\/]/).pop();
   const stat = await fs.stat(file);
   if (stat.size > limits.maxMusicBytes) {
     throw new InputValidationError(
-      `Music ${name} is ${(stat.size / 1048576).toFixed(1)} MB (max ${limits.maxMusicBytes / 1048576} MB)`,
+      `Nhạc nền nặng ${(stat.size / 1048576).toFixed(1)} MB (tối đa ${limits.maxMusicBytes / 1048576} MB)`,
     );
   }
   let info: ProbeResult;
   try {
     info = await probe(file);
   } catch {
-    throw new InputValidationError(`Music ${name} could not be read`);
+    throw new InputValidationError('Nhạc nền không đọc được — file có thể bị hỏng');
   }
   const format = info.format?.format_name ?? '';
   if (!AUDIO_FORMATS.has(format) || !info.streams?.some((s) => s.codec_type === 'audio')) {
     throw new InputValidationError(
-      `${name} is not a supported audio file (MP3, WAV, M4A, OGG, FLAC)`,
+      'Nhạc nền không phải file âm thanh hợp lệ (chỉ nhận MP3, WAV, M4A, OGG, FLAC)',
     );
   }
   const duration = parseFloat(info.format?.duration ?? '0');
   if (duration > limits.maxMusicSeconds) {
-    throw new InputValidationError(
-      `Music ${name} is longer than ${limits.maxMusicSeconds / 60} minutes`,
-    );
+    throw new InputValidationError(`Nhạc nền dài quá ${limits.maxMusicSeconds / 60} phút`);
   }
 }
 
 export function validateScript(script: string, limits: InputLimits = DEFAULT_LIMITS): void {
   if (script.length > limits.maxScriptChars) {
     throw new InputValidationError(
-      `The script has ${script.length} characters (max ${limits.maxScriptChars})`,
+      `Kịch bản có ${script.length} ký tự (tối đa ${limits.maxScriptChars})`,
     );
   }
 }
@@ -144,13 +142,15 @@ export async function validateInputs(
   input: { images: string[]; script: string; music?: string },
   limits: InputLimits = DEFAULT_LIMITS,
 ): Promise<void> {
-  if (input.images.length === 0) throw new InputValidationError('At least one image is required');
+  if (input.images.length === 0) throw new InputValidationError('Cần ít nhất 1 ảnh');
   if (input.images.length > limits.maxImages) {
     throw new InputValidationError(
-      `Too many images: ${input.images.length} (max ${limits.maxImages})`,
+      `Quá nhiều ảnh: ${input.images.length} (tối đa ${limits.maxImages})`,
     );
   }
   validateScript(input.script, limits);
-  for (const img of input.images) await validateImage(img, limits);
+  for (let i = 0; i < input.images.length; i++) {
+    await validateImage(input.images[i], limits, `Ảnh số ${i + 1}`);
+  }
   if (input.music) await validateAudio(input.music, limits);
 }

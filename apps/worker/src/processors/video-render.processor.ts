@@ -18,6 +18,7 @@ import {
 import { DatabaseService } from '../common/database.service';
 import { JsonLogger } from '../common/logger.service';
 import { VideoJobRunner, isPermanent } from '../common/services/video-job-runner';
+import { CancelledError } from '@newsflow/video-studio';
 
 const env = getServerEnv();
 
@@ -114,11 +115,15 @@ export class VideoRenderProcessor extends WorkerHost implements OnModuleInit {
     } catch (err) {
       const e = err as Error;
       const lastAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
-      this.logger.error(
-        `Video job ${videoJobId} (${job.name}) failed on attempt ${job.attemptsMade + 1}: ${e.message}`,
-        e.stack,
-        'VideoRenderProcessor',
-      );
+      if (err instanceof CancelledError) {
+        this.logger.log(`Video job ${videoJobId} (${job.name}) cancelled`, 'VideoRenderProcessor');
+      } else {
+        this.logger.error(
+          `Video job ${videoJobId} (${job.name}) failed on attempt ${job.attemptsMade + 1}: ${e.message}`,
+          e.stack,
+          'VideoRenderProcessor',
+        );
+      }
       if (isPermanent(err) || lastAttempt) {
         await this.runner.markFailed(videoJobId, err);
         throw new UnrecoverableError(e.message);

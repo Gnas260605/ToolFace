@@ -21,6 +21,8 @@ import { SaasService } from './common/services/saas.service';
 import { getServerEnv } from '@newsflow/config';
 import { SessionTokenService } from '@newsflow/database';
 import { AutoPilotController } from './autopilot.controller';
+import { VideoStudioController } from './video-studio.controller';
+import { VIDEO_RENDER_QUEUE } from '@newsflow/video-studio';
 import { AdminPhase6Controller, BillingWebhookController, WorkspaceBillingController } from './phase6.controller';
 
 @Module({
@@ -46,6 +48,7 @@ import { AdminPhase6Controller, BillingWebhookController, WorkspaceBillingContro
       { name: 'notifications' },
       { name: 'notification-email' },
       { name: 'maintenance' },
+      { name: VIDEO_RENDER_QUEUE },
     ),
   ],
   controllers: [
@@ -65,6 +68,7 @@ import { AdminPhase6Controller, BillingWebhookController, WorkspaceBillingContro
     WorkspaceBillingController,
     BillingWebhookController,
     AdminPhase6Controller,
+    VideoStudioController,
   ],
   providers: [
     DatabaseService,

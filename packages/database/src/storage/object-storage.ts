@@ -40,7 +40,7 @@ export function objectStorageConfigFromEnv(
     accessKeyId: required('S3_ACCESS_KEY'),
     secretAccessKey: required('S3_SECRET_KEY'),
     forcePathStyle: (env.S3_FORCE_PATH_STYLE ?? 'true') === 'true',
-    publicEndpoint: env.S3_PUBLIC_ENDPOINT || undefined,
+    publicEndpoint: env.S3_PUBLIC_URL || undefined,
   };
 }
 

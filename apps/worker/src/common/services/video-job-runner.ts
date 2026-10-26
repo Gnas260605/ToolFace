@@ -213,15 +213,24 @@ export class VideoJobRunner {
         await this.deps.storage.putFile(key, o.file, CONTENT_TYPES['.mp4']);
         refs.push({ aspect: o.aspect, key, duration: Math.round(o.duration * 10) / 10 });
       }
+      // If the plan was edited while this render ran, a newer render is already queued:
+      // store this result but keep the job "in progress" so the UI does not flash READY.
+      const current = await this.deps.repo.find(job.id);
+      const superseded =
+        !!current && current.planRevision !== revision && current.status === 'RENDERING';
       await this.deps.repo.update(job.id, {
         ...(data.kind === 'preview'
           ? { previewJson: refs as unknown as object, previewRevision: revision }
           : { outputsJson: refs as unknown as object, outputsRevision: revision }),
-        status: 'READY',
-        stage: null,
-        progress: 100,
-        errorMessage: null,
-        completedAt: new Date(),
+        ...(superseded
+          ? {}
+          : {
+              status: 'READY',
+              stage: null,
+              progress: 100,
+              errorMessage: null,
+              completedAt: new Date(),
+            }),
       });
     });
   }

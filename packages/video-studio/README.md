@@ -88,21 +88,78 @@ Kết quả: `output/shop-9x16.mp4`, `shop-16x9.mp4`, `shop-1x1.mp4` (một đ�
 
 Ngoài ra: `hookText` (tiêu đề lớn 3 giây đầu), `voice`, `speechRate` (`"+10%"`), `captions` (`style`, `box`, vị trí, màu, viết hoa, cỡ chữ), `sfx` (`enabled`, `volume`, `captionPop`), `musicVolume`.
 
-## Dùng trong code (API/worker)
+## Dùng trên web (khuyên dùng)
+
+Trong ứng dụng toolface: menu **Video Studio** (`/app/<workspace>/videos`).
+
+1. Tải ảnh, dán kịch bản, chọn yêu cầu / phong cách / khung hình → **Tạo video**.
+2. Worker gọi Claude lên kế hoạch, rồi tự dựng **bản xem trước 540p** (vùng bị giao diện TikTok/Reels che được tô đỏ nhạt).
+3. Sửa từng cảnh (ảnh, lời đọc, chuyển động, chuyển cảnh, từ khoá), hook, giọng, kiểu phụ đề → **Lưu & dựng xem trước**. Không gọi AI thêm.
+4. **Xuất bản cuối (1080p)** cho mọi khung hình đã chọn → tải về + chép caption, hashtag, tiêu đề YouTube.
+
+Có nút Huỷ (dừng FFmpeg trong vài giây), Thử lại khi lỗi, Xoá (xoá cả file trên MinIO).
+
+### Kiến trúc
+
+```
+Web (Next.js) ──► API (NestJS) ──► MinIO: ảnh/nhạc gốc
+                      │
+                      └─► Redis/BullMQ "video-render" ──► Worker
+                                                          ├─ plan    : kiểm tra file → Claude (strict tool) → plan
+                                                          ├─ render  : Edge TTS → FFmpeg → MinIO
+                                                          └─ cập nhật video_jobs (trạng thái, %, lỗi)
+```
+
+| Thực hành production            | Cách làm                                                                                                        |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Không render trong request HTTP | API chỉ tạo job; worker xử lý, web hỏi trạng thái mỗi 2,5 giây                                                  |
+| Retry an toàn                   | 3 lần, backoff 30 s luỹ thừa; lỗi đầu vào / AI từ chối → dừng ngay, không retry                                 |
+| Không tốn tiền khi retry        | Cache theo nội dung: plan (hash ảnh + kịch bản + yêu cầu), giọng đọc theo câu, clip từng cảnh                   |
+| Huỷ được                        | Cờ `cancel_requested` trong DB, worker kiểm tra 2 s/lần và kill FFmpeg                                          |
+| Không treo                      | Mỗi lệnh FFmpeg có timeout (mặc định 10 phút, `VIDEO_STUDIO_CMD_TIMEOUT_MS`)                                    |
+| An toàn đầu vào                 | Kiểm tra bằng ffprobe theo nội dung file, giới hạn số ảnh / dung lượng / kích thước; `-protocol_whitelist file` |
+| Chi phí AI                      | Kiểm tra hạn mức workspace trước khi gọi; ghi token + chi phí ước tính vào `ai_usage_events`                    |
+| Redis                           | Prod dùng AOF + `maxmemory-policy noeviction` như BullMQ yêu cầu                                                |
+| Tài nguyên                      | `VIDEO_RENDER_CONCURRENCY` (mặc định 1) mỗi worker; scale bằng thêm container worker                            |
+
+### Biến môi trường
+
+| Biến                                     | Ý nghĩa                                                            |
+| ---------------------------------------- | ------------------------------------------------------------------ |
+| `ANTHROPIC_API_KEY`                      | Bắt buộc để AI xem ảnh và lên kế hoạch                             |
+| `VIDEO_PLANNER_MODEL`                    | Mặc định `claude-sonnet-5-5`                                       |
+| `VIDEO_PLANNER_USD_PER_MTOK_IN` / `_OUT` | Giá để ước tính chi phí (mặc định 3 / 15)                          |
+| `VIDEO_RENDER_CONCURRENCY`               | Số video render song song mỗi worker                               |
+| `VIDEO_STUDIO_CACHE_DIR`                 | Thư mục cache (Docker: volume `/var/cache/video-studio`)           |
+| `S3_PUBLIC_URL`                          | Địa chỉ MinIO mà trình duyệt truy cập được, nếu khác `S3_ENDPOINT` |
+
+Sau khi kéo code: chạy migration `pnpm --filter @newsflow/database exec prisma migrate deploy` (tạo bảng `video_jobs`).
+
+## Dùng trong code
 
 ```ts
-import { createVideo } from '@newsflow/video-studio';
+import { planVideo, renderPlan } from '@newsflow/video-studio';
 
-const { outputs } = await createVideo({
+const { plan } = await planVideo({ images, script, request, style, aspect: '9:16', workDir });
+const { outputs } = await renderPlan({
+  plan,
   images,
-  script,
-  request,
-  style,
-  aspects: ['9:16'],
-  output: 'output/video.mp4',
-  workDir: 'output/video.work',
+  aspects: ['9:16', '1:1'],
+  quality: 'final',
+  output: 'out/video.mp4',
+  workDir,
 });
 ```
+
+`createVideo()` gộp cả hai bước (dùng cho CLI).
+
+## Chuẩn đầu ra
+
+- 9:16: phụ đề và hook nằm ngoài vùng giao diện app (trên 14%, dưới 40% gồm cột nút bên phải, hai bên 7%).
+- Bản cuối: H.264 High, 30 fps, GOP 15 (closed), 2 B-frame, AAC-LC 48 kHz 320 kbps, `faststart`, độ to −14 LUFS; metadata `comment=Made with AI (toolface video-studio)`.
+- Bản xem trước: nửa độ phân giải, mã hoá nhanh.
+
+> **⚠️ Khi đăng, bật nhãn "Nội dung do AI tạo"** — TikTok và YouTube yêu cầu với giọng đọc / hình ảnh tổng hợp trông như thật.
 
 ## Phát triển
 

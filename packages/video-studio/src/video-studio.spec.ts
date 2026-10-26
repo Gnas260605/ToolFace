@@ -546,13 +546,13 @@ describe('production hardening', () => {
     await expect(validateInputs({ images: [img], script: 'a' })).resolves.toBeUndefined();
     await expect(
       validateInputs({ images: [img], script: 'a' }, { ...DEFAULT_LIMITS, maxImageSide: 32 }),
-    ).rejects.toThrow('longest side');
+    ).rejects.toThrow('cạnh dài nhất');
     await expect(
       validateInputs(
         { images: [img], script: 'x'.repeat(10) },
         { ...DEFAULT_LIMITS, maxScriptChars: 5 },
       ),
-    ).rejects.toThrow('characters');
+    ).rejects.toThrow('ký tự');
   });
 
   it.skipIf(!hasFfmpeg)('stops commands on timeout and on cancel', async () => {

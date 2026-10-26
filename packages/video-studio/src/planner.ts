@@ -178,7 +178,7 @@ export class ClaudePlanner implements Planner {
       response = await this.call({ ...params, max_tokens: 32_000 }, req);
     }
     if (response.stop_reason === 'refusal') {
-      throw new PlannerError('The model declined to plan this video. Check the script and images.');
+      throw new PlannerError('AI từ chối dựng video này. Hãy kiểm tra lại kịch bản và ảnh.');
     }
     const toolUse = response.content.find(
       (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use' && b.name === PLAN_TOOL_NAME,
@@ -251,8 +251,13 @@ export class HeuristicPlanner implements Planner {
 
     const transitions: Transition[] = ['fade', 'slideleft', 'dissolve', 'smoothup', 'circleopen'];
     const motions: Motion[] = MOTIONS.filter((m) => m !== 'static');
+    const words = req.script.trim().split(/\s+/);
     const raw = {
-      title: 'video',
+      title:
+        words
+          .slice(0, 8)
+          .join(' ')
+          .replace(/[.,!?;:…]+$/, '') + (words.length > 8 ? '…' : ''),
       voice: req.voice || VOICES[0],
       speechRate: '+0%',
       captions: {
