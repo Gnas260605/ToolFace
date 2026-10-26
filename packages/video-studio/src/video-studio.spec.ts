@@ -3,7 +3,18 @@ import { mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { assColor, assTime, buildAss, cuesForText } from './captions';
+import {
+  alignWords,
+  assColor,
+  assTime,
+  balanceLines,
+  buildAss,
+  buildCaptionCues,
+  estimateWordTimings,
+  groupWords,
+} from './captions';
+import { buildSfxGraph, planSfx } from './sfx';
+import { parseTtsWords } from './tts';
 import { FFMPEG, run } from './ffmpeg';
 import { EditPlan, parseEditPlan } from './plan';
 import { ClaudePlanner, HeuristicPlanner, splitSentences } from './planner';
@@ -119,12 +130,45 @@ describe('buildTimeline', () => {
 });
 
 describe('captions', () => {
-  it('splits text into timed cues covering the whole window', () => {
-    const cues = cuesForText('một hai ba bốn năm sáu bảy tám chín mười', 1, 5, 5);
-    expect(cues).toHaveLength(2);
-    expect(cues[0].start).toBe(1);
-    expect(cues[cues.length - 1].end).toBeCloseTo(6);
-    expect(cuesForText('   ', 0, 3, 5)).toEqual([]);
+  it('estimates word timings across the window', () => {
+    const words = estimateWordTimings('một hai ba bốn', 1, 4);
+    expect(words).toHaveLength(4);
+    expect(words[0].start).toBe(1);
+    expect(words[3].end).toBeCloseTo(5);
+    expect(estimateWordTimings('   ', 0, 3)).toEqual([]);
+  });
+
+  it('aligns script words (with punctuation) to TTS word timings', () => {
+    const tts = [
+      { text: 'Xin', start: 0.1, end: 0.3 },
+      { text: 'chào', start: 0.3, end: 0.6 },
+      { text: 'các', start: 0.7, end: 0.9 },
+      { text: 'bạn', start: 0.9, end: 1.2 },
+    ];
+    const words = alignWords('Xin chào, – các bạn!', tts, 10, 2);
+    expect(words.map((w) => w.text)).toEqual(['Xin', 'chào,', '–', 'các', 'bạn!']);
+    expect(words[1].start).toBeCloseTo(10.3);
+    expect(words[4].end).toBeCloseTo(11.2);
+    // the dash is interpolated between its neighbours
+    expect(words[2].start).toBeGreaterThanOrEqual(10.6);
+    expect(words[2].end).toBeLessThanOrEqual(10.7 + 1e-9);
+  });
+
+  it('falls back to estimates when TTS words do not match', () => {
+    const words = alignWords('một hai ba', [{ text: 'zzz', start: 0, end: 1 }], 0, 3);
+    expect(words).toHaveLength(3);
+    expect(words[2].end).toBeCloseTo(1);
+  });
+
+  it('groups words into short lines and closes small gaps', () => {
+    const words = estimateWordTimings('một hai, ba bốn năm sáu bảy', 0, 7);
+    const cues = groupWords(words, 4, 0);
+    expect(cues.map((c) => c.words.map((w) => w.text).join(' '))).toEqual([
+      'một hai,',
+      'ba bốn năm sáu',
+      'bảy',
+    ]);
+    expect(cues[0].end).toBe(cues[1].start);
   });
 
   it('formats ASS colours and times', () => {
@@ -132,17 +176,124 @@ describe('captions', () => {
     expect(assTime(3725.456)).toBe('1:02:05.46');
   });
 
-  it('writes hook, captions and caption overrides', () => {
+  it('writes the hook, captions and caption overrides (plain style)', () => {
     const plan = samplePlan({ hookText: 'Tiêu {đề}' });
+    plan.captions.style = 'plain';
     plan.scenes[1].caption = 'Chữ riêng';
     const ass = buildAss(plan, buildTimeline(plan, [2, 0, 1]), {
       aspect: '9:16',
       fontName: 'Arial',
     });
     expect(ass).toContain('PlayResX: 1080');
-    expect(ass).toContain(',Hook,,0,0,0,,{\\fad(150,250)}Tiêu đề');
+    expect(ass).toMatch(/,Hook,,0,0,0,,\{[^}]*\\fscx75[^}]*\}Tiêu đề/);
     expect(ass).toContain('Chữ riêng');
     expect(ass).toContain('Hẹn gặp lại.');
+  });
+
+  it('karaoke: one event per word with the spoken word highlighted, emphasis coloured', () => {
+    const plan = samplePlan();
+    plan.scenes[0].narration = 'Giảm giá 50% hôm nay';
+    plan.scenes[0].emphasis = ['50%'];
+    const timeline = buildTimeline(plan, [2, 0, 1]);
+    const ass = buildAss(plan, timeline, { aspect: '16:9', fontName: 'Arial' });
+    const events = ass.split('\n').filter((l) => l.startsWith('Dialogue: 0,') && l.includes('hôm'));
+    expect(events).toHaveLength(5);
+    const hl = '\\c&H0000D4FF';
+    // word 0 active: dark text on a highlight-coloured marker stroke, plus the pop-in
+    expect(events[0]).toMatch(
+      /\{\\c&H00141414&\\3c&H0000D4FF\\bord\d+\\shad0\\fscx112\\fscy112\}Giảm\{\\r\}/,
+    );
+    expect(events[0]).toContain('\\t(0,90');
+    // the emphasised word is coloured even when not active
+    expect(events[0]).toContain(`{${hl}}50%{\\r}`);
+    expect(events[3]).toMatch(/\\fscy112\}hôm\{\\r\}/);
+  });
+
+  it('box style colours the active word instead of stroking it; phrases emphasise each word', () => {
+    const plan = samplePlan();
+    plan.captions.box = true;
+    plan.scenes[0].narration = 'Ảnh rõ nét luôn bán chạy';
+    plan.scenes[0].emphasis = ['rõ nét'];
+    const ass = buildAss(plan, buildTimeline(plan, [2, 0, 1]), {
+      aspect: '16:9',
+      fontName: 'Arial',
+    });
+    const first = ass.split('\n').find((l) => l.startsWith('Dialogue: 0,') && l.includes('chạy'))!;
+    expect(first).toContain('{\\c&H0000D4FF\\fscx112\\fscy112}Ảnh{\\r}');
+    expect(first).toContain('{\\c&H0000D4FF}rõ{\\r} {\\c&H0000D4FF}nét{\\r}');
+  });
+
+  it('balances long headlines over hard line breaks', () => {
+    expect(balanceLines('Bí quyết bán hàng online 2026', 18)).toBe(
+      'Bí quyết bán\\Nhàng online 2026',
+    );
+    expect(balanceLines('Ngắn gọn', 18)).toBe('Ngắn gọn');
+  });
+
+  it('uses TTS word timings when provided', () => {
+    const plan = samplePlan();
+    const timeline = buildTimeline(plan, [2, 0, 1]);
+    const cues = buildCaptionCues(plan, timeline, '9:16', [
+      [
+        { text: 'Xin', start: 0, end: 0.5 },
+        { text: 'chào', start: 0.6, end: 1 },
+        { text: 'các', start: 1.2, end: 1.4 },
+        { text: 'bạn', start: 1.4, end: 1.9 },
+      ],
+    ]);
+    expect(cues[0].words[2].start).toBeCloseTo(timeline.scenes[0].audioStart + 1.2);
+  });
+
+  it('parses TTS word JSON defensively', () => {
+    expect(
+      parseTtsWords('[{"text":"a","start":0,"end":0.2},{"text":"b","start":"x"},{"bad":1}]'),
+    ).toEqual([{ text: 'a', start: 0, end: 0.2 }]);
+    expect(parseTtsWords('{}')).toEqual([]);
+  });
+});
+
+describe('sound effects', () => {
+  it('places a hit under the hook, whooshes on transitions, ticks on cuts and pops on lines', () => {
+    const plan = samplePlan({ hookText: 'Hook' });
+    plan.scenes[0].narration = 'một hai ba bốn năm sáu bảy tám chín mười mười một mười hai';
+    const timeline = buildTimeline(plan, [4, 0, 1]);
+    const cues = buildCaptionCues(plan, timeline, '9:16');
+    const events = planSfx(plan, timeline, cues);
+    const kinds = events.map((e) => e.sound);
+    expect(kinds[0]).toBe('hit');
+    expect(kinds.filter((k) => k === 'whoosh')).toHaveLength(1); // scene 0 -> 1 (fade)
+    expect(kinds.filter((k) => k === 'tick')).toHaveLength(1); // scene 1 -> 2 (cut)
+    expect(kinds.some((k) => k.startsWith('pop'))).toBe(true);
+    const whoosh = events.find((e) => e.sound === 'whoosh')!;
+    // whoosh peak (0.35s in) lands in the middle of the crossfade
+    expect(whoosh.time + 0.35).toBeCloseTo(timeline.scenes[1].start + 0.25);
+    // no pop stacked on top of the hit
+    expect(events.filter((e) => e.sound.startsWith('pop') && e.time < 0.3)).toHaveLength(0);
+  });
+
+  it('respects sfx settings', () => {
+    const plan = samplePlan();
+    plan.sfx.captionPop = false;
+    const timeline = buildTimeline(plan, [4, 0, 1]);
+    const cues = buildCaptionCues(plan, timeline, '9:16');
+    expect(planSfx(plan, timeline, cues).some((e) => e.sound.startsWith('pop'))).toBe(false);
+    plan.sfx.enabled = false;
+    expect(planSfx(plan, timeline, cues)).toEqual([]);
+  });
+
+  it('builds one mixed track with a delayed copy per event', () => {
+    const { graph, inputs } = buildSfxGraph(
+      [
+        { sound: 'whoosh', time: 1, gain: 0.5 },
+        { sound: 'whoosh', time: 3.25, gain: 0.5 },
+        { sound: 'pop0', time: 2, gain: 0.3 },
+      ],
+      ['whoosh', 'pop0'],
+    );
+    expect(inputs).toBe(3);
+    expect(graph).toContain('asplit=2[s0_0][s0_1]');
+    expect(graph).toContain('adelay=3250|3250');
+    expect(graph).toContain('amix=inputs=4:normalize=0:duration=first[sfx]');
   });
 });
 
@@ -151,7 +302,7 @@ describe('render graph', () => {
     const plan = samplePlan();
     const timeline = buildTimeline(plan, [2, 0, 1]);
     const { graph, voiceInputs, silenceInput, musicInput } = buildFinalGraph(
-      { plan, timeline, narration: ['a.mp3', null, 'c.mp3'], music: 'm.mp3' },
+      { plan, timeline, narration: ['a.mp3', null, 'c.mp3'], music: 'm.mp3', sfxTrack: 'fx.wav' },
       'captions.ass',
     );
     expect(silenceInput).toBe(3);
@@ -167,6 +318,8 @@ describe('render graph', () => {
     expect(graph).toContain(`adelay=${Math.round(timeline.scenes[2].audioStart * 1000)}`);
     expect(graph).toContain('sidechaincompress');
     expect(graph).toContain('amix=inputs=3');
+    expect(graph).toContain('[7:a]aresample');
+    expect(graph).toContain('[bed][fx]amix=inputs=2');
   });
 
   it('builds zoompan expressions for every motion', () => {

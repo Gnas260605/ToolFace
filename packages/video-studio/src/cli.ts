@@ -2,7 +2,7 @@
 import { existsSync, promises as fs } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { ASPECTS, Aspect } from './plan';
+import { ASPECTS, Aspect, CAPTION_STYLES, CaptionStyle } from './plan';
 import { createVideo } from './studio';
 
 const HELP = `video-studio — biến ảnh + kịch bản thành video hoàn chỉnh
@@ -23,6 +23,9 @@ Cách dùng:
       --voice <name>       vi-VN-HoaiMyNeural (nữ) | vi-VN-NamMinhNeural (nam)
       --music <file>       Nhạc nền (tự giảm âm khi có giọng đọc)
       --no-voice           Không lồng tiếng, chỉ phụ đề
+      --caption-style <s>  karaoke (chữ sáng theo giọng) | pop (bật từng dòng) | plain
+      --no-sfx             Tắt hiệu ứng âm thanh (whoosh, pop...)
+      --sfx-dir <dir>      Dùng âm thanh của bạn: whoosh/pop/tick/hit .wav|.mp3
       --plan <file>        Dùng plan.json có sẵn (bỏ qua bước AI lên kế hoạch)
       --plan-only          Chỉ tạo plan.json để xem/sửa trước khi render
       --font <name>        Font phụ đề (phải hỗ trợ tiếng Việt)
@@ -67,6 +70,9 @@ async function main(): Promise<void> {
       voice: { type: 'string' },
       music: { type: 'string' },
       'no-voice': { type: 'boolean', default: false },
+      'caption-style': { type: 'string' },
+      'no-sfx': { type: 'boolean', default: false },
+      'sfx-dir': { type: 'string' },
       plan: { type: 'string' },
       'plan-only': { type: 'boolean', default: false },
       font: { type: 'string' },
@@ -103,6 +109,11 @@ async function main(): Promise<void> {
       throw new Error(`Khung hình không hợp lệ: ${a} (chọn ${ASPECTS.join(', ')})`);
   }
 
+  const captionStyle = values['caption-style'] as CaptionStyle | undefined;
+  if (captionStyle && !CAPTION_STYLES.includes(captionStyle)) {
+    throw new Error(`--caption-style phải là ${CAPTION_STYLES.join(', ')}`);
+  }
+
   const out = path.resolve(values.out);
   const started = Date.now();
   const result = await createVideo({
@@ -116,6 +127,9 @@ async function main(): Promise<void> {
     voice: values.voice,
     music: values.music,
     noVoice: values['no-voice'],
+    noSfx: values['no-sfx'],
+    sfxDir: values['sfx-dir'],
+    captionStyle,
     plan,
     planOnly: values['plan-only'],
     fontName: values.font,

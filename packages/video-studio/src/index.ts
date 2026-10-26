@@ -5,3 +5,4 @@ export * from './timeline';
 export * from './captions';
 export { renderVideo, renderSceneClip, defaultFontName } from './render';
 export * from './studio';
+export * from './sfx';

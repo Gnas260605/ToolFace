@@ -12,7 +12,7 @@ Công cụ AI dựng video tự động trong monorepo toolface:
  Edge TTS (giọng Việt miễn phí) ──► lời đọc từng cảnh
         │
         ▼
- FFmpeg ──► Ken Burns + chuyển cảnh + phụ đề + nhạc nền tự giảm âm ──► MP4 9:16 / 16:9 / 1:1
+ FFmpeg ──► Ken Burns + chuyển cảnh + phụ đề karaoke + hiệu ứng âm thanh + nhạc nền tự giảm âm ──► MP4 9:16 / 16:9 / 1:1
 ```
 
 ## Cài đặt (Windows)
@@ -62,6 +62,13 @@ Kết quả: `output/shop-9x16.mp4`, `shop-16x9.mp4`, `shop-1x1.mp4` (một đ�
 
 > **⚠️ Bản quyền: chỉ dùng ảnh và nhạc bạn có quyền sử dụng — TikTok/YouTube/Facebook tắt kiếm tiền hoặc gỡ video dùng nhạc/ảnh của người khác.**
 
+## Phụ đề nổi bật & hiệu ứng âm thanh
+
+- **Karaoke**: dùng thời điểm từng từ do Edge TTS trả về; từ đang được đọc hiện chữ tối trên nền màu nổi bật và to hơn một chút. Dòng chữ mới bật lên (pop-in).
+- **Từ khoá** (`emphasis` trong plan, AI tự chọn số liệu, giá, tên sản phẩm…) luôn được tô màu.
+- **Hook** đầu video: chữ đen trên khung màu, bật lên kèm tiếng "hit".
+- **Âm thanh**: "whoosh" mỗi lần chuyển ảnh, "tick" khi cắt cảnh, "pop" khi dòng phụ đề xuất hiện. Âm được tạo sẵn bằng FFmpeg nên không lo bản quyền; muốn âm khác thì dùng `--sfx-dir`.
+
 ## Sửa kế hoạch dựng bằng tay
 
 `plan.json` (nằm trong thư mục `<out>.work/`) mô tả từng cảnh:
@@ -74,11 +81,12 @@ Kết quả: `output/shop-9x16.mp4`, `shop-16x9.mp4`, `shop-1x1.mp4` (một đ�
   "motion": "zoom_in | zoom_out | pan_left | pan_right | pan_up | pan_down | static",
   "fit": "cover | contain_blur",
   "transition": "cut | fade | dissolve | fadeblack | slideleft | slideup | wipeleft | circleopen | smoothleft | zoomin ...",
-  "minDuration": 2.5
+  "minDuration": 2.5,
+  "emphasis": ["50%", "miễn phí"]
 }
 ```
 
-Ngoài ra: `hookText` (tiêu đề lớn 3 giây đầu), `voice`, `speechRate` (`"+10%"`), `captions` (vị trí, màu, viết hoa, cỡ chữ), `musicVolume`.
+Ngoài ra: `hookText` (tiêu đề lớn 3 giây đầu), `voice`, `speechRate` (`"+10%"`), `captions` (`style`, `box`, vị trí, màu, viết hoa, cỡ chữ), `sfx` (`enabled`, `volume`, `captionPop`), `musicVolume`.
 
 ## Dùng trong code (API/worker)
 

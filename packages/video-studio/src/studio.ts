@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { Aspect, EditPlan, parseEditPlan } from './plan';
+import { WordTiming } from './captions';
+import { Aspect, CaptionStyle, EditPlan, parseEditPlan } from './plan';
 import { ClaudePlanner, HeuristicPlanner, Planner } from './planner';
 import { renderVideo } from './render';
 import { buildTimeline } from './timeline';
@@ -28,6 +29,12 @@ export interface CreateVideoOptions {
   tts?: TtsEngine;
   fontName?: string;
   fontsDir?: string;
+  /** Turn sound effects off regardless of the plan. */
+  noSfx?: boolean;
+  /** Folder with your own whoosh/pop/tick/hit sounds. */
+  sfxDir?: string;
+  /** Override the plan's caption animation. */
+  captionStyle?: CaptionStyle;
   log?: (msg: string) => void;
 }
 
@@ -87,6 +94,8 @@ export async function createVideo(opts: CreateVideoOptions): Promise<CreateVideo
     });
   }
   if (opts.voice) plan.voice = opts.voice;
+  if (opts.noSfx) plan.sfx.enabled = false;
+  if (opts.captionStyle) plan.captions.style = opts.captionStyle;
   const planFile = path.join(workDir, 'plan.json');
   await fs.writeFile(planFile, JSON.stringify(plan, null, 2), 'utf8');
   log(`Plan: ${plan.scenes.length} scenes, voice ${plan.voice} → ${planFile}`);
@@ -97,11 +106,13 @@ export async function createVideo(opts: CreateVideoOptions): Promise<CreateVideo
   log(`Generating narration (${tts.name})…`);
   const narration: (string | null)[] = [];
   const durations: number[] = [];
+  const sceneWords: (WordTiming[] | undefined)[] = [];
   for (let i = 0; i < plan.scenes.length; i++) {
     const text = plan.scenes[i].narration.trim();
     if (!text) {
       narration.push(null);
       durations.push(0);
+      sceneWords.push(undefined);
       continue;
     }
     const r = await tts.synthesize(
@@ -113,6 +124,7 @@ export async function createVideo(opts: CreateVideoOptions): Promise<CreateVideo
     // Silent placeholders only drive timing; don't mix them.
     narration.push(tts instanceof SilentTts ? null : r.file);
     durations.push(r.duration);
+    sceneWords.push(r.words);
   }
   const timeline = buildTimeline(plan, durations);
 
@@ -125,6 +137,8 @@ export async function createVideo(opts: CreateVideoOptions): Promise<CreateVideo
       timeline,
       images,
       narration,
+      sceneWords,
+      sfxDir: opts.sfxDir ? path.resolve(opts.sfxDir) : undefined,
       aspect,
       output: outputPathFor(opts.output, aspect, opts.aspects.length > 1),
       workDir,

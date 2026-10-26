@@ -1,9 +1,10 @@
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { buildAss } from './captions';
+import { buildAss, buildCaptionCues, WordTiming } from './captions';
 import { FFMPEG, run, sec } from './ffmpeg';
 import { Aspect, EditPlan, Fit, Motion, RESOLUTIONS } from './plan';
+import { planSfx, renderSfxTrack } from './sfx';
 import { TimedScene, Timeline } from './timeline';
 
 export const FPS = 30;
@@ -128,6 +129,10 @@ export interface RenderInput {
   fontName?: string;
   /** Folder with extra .ttf/.otf fonts for captions. */
   fontsDir?: string;
+  /** Word timings from the TTS per scene (relative to narration start) for karaoke captions. */
+  sceneWords?: (WordTiming[] | undefined)[];
+  /** Folder with your own sound effects (whoosh, pop, tick, hit .wav/.mp3) to replace the built-in ones. */
+  sfxDir?: string;
   log?: (msg: string) => void;
 }
 
@@ -141,9 +146,17 @@ export function defaultFontName(): string {
 
 /** Build the final filter graph: xfade chain + captions + voice/music mix. Exported for tests. */
 export function buildFinalGraph(
-  input: Pick<RenderInput, 'timeline' | 'narration' | 'music' | 'plan' | 'fontsDir'>,
+  input: Pick<RenderInput, 'timeline' | 'narration' | 'music' | 'plan' | 'fontsDir'> & {
+    sfxTrack?: string | null;
+  },
   assFileName: string,
-): { graph: string; voiceInputs: number[]; musicInput: number | null; silenceInput: number } {
+): {
+  graph: string;
+  voiceInputs: number[];
+  musicInput: number | null;
+  silenceInput: number;
+  sfxInput: number | null;
+} {
   const { timeline } = input;
   const n = timeline.scenes.length;
   const parts: string[] = [];
@@ -204,13 +217,24 @@ export function buildFinalGraph(
     parts.push(
       `[mus][voicekey]sidechaincompress=threshold=0.02:ratio=6:attack=20:release=500[ducked]`,
     );
-    parts.push(`[voiceout][ducked]amix=inputs=2:normalize=0:duration=first[mix]`);
+    parts.push(`[voiceout][ducked]amix=inputs=2:normalize=0:duration=first[bed]`);
   } else {
-    parts.push(`[voice]anull[mix]`);
+    parts.push(`[voice]anull[bed]`);
+  }
+
+  let sfxInput: number | null = null;
+  if (input.sfxTrack) {
+    sfxInput = idx++;
+    parts.push(
+      `[${sfxInput}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[fx]`,
+      `[bed][fx]amix=inputs=2:normalize=0:duration=first[mix]`,
+    );
+  } else {
+    parts.push(`[bed]anull[mix]`);
   }
   parts.push(`[mix]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=44100[aout]`);
 
-  return { graph: parts.join(';\n'), voiceInputs, musicInput, silenceInput };
+  return { graph: parts.join(';\n'), voiceInputs, musicInput, silenceInput, sfxInput };
 }
 
 export async function renderVideo(input: RenderInput): Promise<string> {
@@ -236,15 +260,28 @@ export async function renderVideo(input: RenderInput): Promise<string> {
   });
 
   // 2) Captions.
-  const assName = `captions-${aspect.replace(':', 'x')}.ass`;
+  const tag = aspect.replace(':', 'x');
+  const assName = `captions-${tag}.ass`;
   await fs.writeFile(
     path.join(workDir, assName),
-    buildAss(plan, timeline, { aspect, fontName: input.fontName || defaultFontName() }),
+    buildAss(plan, timeline, {
+      aspect,
+      fontName: input.fontName || defaultFontName(),
+      sceneWords: input.sceneWords,
+    }),
     'utf8',
   );
 
-  // 3) Assemble.
-  const { graph } = buildFinalGraph(input, assName);
+  // 3) Sound effects, timed to the transitions and caption lines of this format.
+  const cues = buildCaptionCues(plan, timeline, aspect, input.sceneWords);
+  const events = planSfx(plan, timeline, cues);
+  const sfxDir = path.join(workDir, `sfx-${tag}`);
+  await fs.mkdir(sfxDir, { recursive: true });
+  const sfxTrack = await renderSfxTrack(events, timeline.total, sfxDir, input.sfxDir);
+  if (events.length) log(`  ${events.length} sound effects placed`);
+
+  // 4) Assemble.
+  const { graph } = buildFinalGraph({ ...input, sfxTrack }, assName);
   const graphFile = path.join(workDir, `final-${aspect.replace(':', 'x')}.filtergraph`);
   await fs.writeFile(graphFile, graph, 'utf8');
 
@@ -253,6 +290,7 @@ export async function renderVideo(input: RenderInput): Promise<string> {
   args.push('-f', 'lavfi', '-t', sec(timeline.total), '-i', 'anullsrc=r=44100:cl=stereo');
   for (const file of input.narration) if (file) args.push('-i', file);
   if (input.music) args.push('-stream_loop', '-1', '-i', input.music);
+  if (sfxTrack) args.push('-i', sfxTrack);
 
   const output = path.resolve(input.output);
   await fs.mkdir(path.dirname(output), { recursive: true });

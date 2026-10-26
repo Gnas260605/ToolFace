@@ -41,7 +41,9 @@ Rules:
 - transition: match the style. Energetic: slides, smooth, zoomin, some cuts. Calm/cinematic: fade, dissolve, fadeblack. Don't use the same one every time unless the style asks for it.
 - hookText: a short headline for the first seconds when the platform is TikTok/Reels/Shorts or the request asks for a hook; otherwise omit it.
 - voice: vi-VN-HoaiMyNeural (female) or vi-VN-NamMinhNeural (male), whichever suits the content and the request.
-- captions: usually enabled; position "bottom" for 16:9, "center" or "bottom" for 9:16 — keep them away from faces.
+- captions: usually enabled; position "bottom" for 16:9, "center" or "bottom" for 9:16 — keep them away from faces. style "karaoke" (spoken word lights up) for TikTok/Reels/Shorts and energetic content, "pop" for punchy promos, "plain" for calm or formal videos. box=true when the images are busy or bright behind the text. Choose highlightColor to pop against the images (yellow #FFD400, green #39FF14, cyan #00E5FF, pink #FF2E93...).
+- emphasis: per scene, 0-3 words copied exactly from that scene's narration that carry the message (numbers, prices, product names, strong verbs). They are coloured in the captions.
+- sfx: whoosh on image changes, pop as caption lines appear, hit under the hook. enabled for social videos; volume ~0.8 energetic, ~0.4 calm; captionPop false for calm/formal styles.
 - Never invent facts the script does not contain.`;
 
 const PLAN_TOOL_NAME = 'submit_edit_plan';
@@ -184,14 +186,21 @@ export class HeuristicPlanner implements Planner {
       speechRate: '+0%',
       captions: {
         enabled: true,
+        style: 'karaoke',
+        box: false,
         position: req.aspect === '16:9' ? 'bottom' : 'center',
         color: '#FFFFFF',
         highlightColor: '#FFD400',
         uppercase: false,
         scale: 1,
       },
+      sfx: { enabled: true, volume: 0.7, captionPop: true },
       musicVolume: 0.15,
       scenes: chunks.map((narration, i) => ({
+        emphasis: narration
+          .split(/\s+/)
+          .filter((w) => /\d/.test(w))
+          .slice(0, 3),
         imageIndex: Math.floor((i * req.images.length) / chunks.length),
         narration,
         motion: motions[i % motions.length],

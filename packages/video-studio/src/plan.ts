@@ -63,8 +63,26 @@ export const SceneSchema = z.object({
   transition: z.enum(TRANSITIONS).catch('fade'),
   /** Minimum seconds on screen, even if the narration is shorter. */
   minDuration: z.number().min(0.5).max(30).catch(2.5),
+  /** 0-3 key words of the narration to colour/emphasise in the captions. */
+  emphasis: z.array(z.string()).catch([]).default([]),
 });
 export type Scene = z.infer<typeof SceneSchema>;
+
+export const CAPTION_STYLES = ['karaoke', 'pop', 'plain'] as const;
+export type CaptionStyle = (typeof CAPTION_STYLES)[number];
+
+const DEFAULT_CAPTIONS = {
+  enabled: true,
+  style: 'karaoke' as CaptionStyle,
+  box: false,
+  position: 'bottom' as const,
+  color: '#FFFFFF',
+  highlightColor: '#FFD400',
+  uppercase: false,
+  scale: 1,
+};
+
+const DEFAULT_SFX = { enabled: true, volume: 0.8, captionPop: true };
 
 export const EditPlanSchema = z.object({
   title: z.string().default('video'),
@@ -79,6 +97,10 @@ export const EditPlanSchema = z.object({
   captions: z
     .object({
       enabled: z.boolean().catch(true),
+      /** karaoke = the spoken word lights up; pop = each line pops in; plain = simple fade. */
+      style: z.enum(CAPTION_STYLES).catch('karaoke').default('karaoke'),
+      /** Dark rounded box behind the text instead of an outline. */
+      box: z.boolean().catch(false).default(false),
       position: z.enum(['bottom', 'center', 'top']).catch('bottom'),
       color: hexColor.catch('#FFFFFF'),
       highlightColor: hexColor.catch('#FFD400'),
@@ -86,14 +108,17 @@ export const EditPlanSchema = z.object({
       /** Relative font size: 1 = default. */
       scale: z.number().min(0.5).max(2).catch(1),
     })
-    .catch({
-      enabled: true,
-      position: 'bottom',
-      color: '#FFFFFF',
-      highlightColor: '#FFD400',
-      uppercase: false,
-      scale: 1,
-    }),
+    .catch(DEFAULT_CAPTIONS)
+    .default(DEFAULT_CAPTIONS),
+  /** Sound effects: whoosh on transitions, pop when captions appear, hit under the hook. */
+  sfx: z
+    .object({
+      enabled: z.boolean().catch(true).default(true),
+      volume: z.number().min(0).max(1).catch(0.8).default(0.8),
+      captionPop: z.boolean().catch(true).default(true),
+    })
+    .catch(DEFAULT_SFX)
+    .default(DEFAULT_SFX),
   /** Background music loudness 0–1 (only used when a music file is given). */
   musicVolume: z.number().min(0).max(1).catch(0.15),
   scenes: z.array(SceneSchema).min(1),
@@ -132,13 +157,43 @@ export const EDIT_PLAN_JSON_SCHEMA = {
       type: 'object',
       properties: {
         enabled: { type: 'boolean' },
+        style: {
+          type: 'string',
+          enum: [...CAPTION_STYLES],
+          description:
+            'karaoke = word-by-word highlight (TikTok style); pop = whole line pops in; plain = calm fade',
+        },
+        box: { type: 'boolean', description: 'Dark box behind the text (good on busy images)' },
         position: { type: 'string', enum: ['bottom', 'center', 'top'] },
         color: { type: 'string', description: 'Hex color like #FFFFFF' },
         highlightColor: { type: 'string', description: 'Hex color for the hook text / emphasis' },
         uppercase: { type: 'boolean' },
         scale: { type: 'number', description: 'Font size multiplier 0.5-2' },
       },
-      required: ['enabled', 'position', 'color', 'highlightColor', 'uppercase', 'scale'],
+      required: [
+        'enabled',
+        'style',
+        'box',
+        'position',
+        'color',
+        'highlightColor',
+        'uppercase',
+        'scale',
+      ],
+    },
+    sfx: {
+      type: 'object',
+      description: 'Sound effects layered under the voice',
+      properties: {
+        enabled: { type: 'boolean' },
+        volume: { type: 'number', description: '0-1; ~0.8 energetic, ~0.4 calm' },
+        captionPop: {
+          type: 'boolean',
+          description:
+            'Soft pop each time a caption line appears (energetic styles); false for calm videos',
+        },
+      },
+      required: ['enabled', 'volume', 'captionPop'],
     },
     musicVolume: { type: 'number', description: 'Background music volume 0-1 under the voice' },
     scenes: {
@@ -166,10 +221,16 @@ export const EDIT_PLAN_JSON_SCHEMA = {
             description: 'Transition into the NEXT scene',
           },
           minDuration: { type: 'number', description: 'Minimum seconds on screen' },
+          emphasis: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              '0-3 key words copied exactly from this scene narration (numbers, prices, product names, strong verbs) to colour in the captions',
+          },
         },
         required: ['imageIndex', 'narration', 'motion', 'fit', 'transition', 'minDuration'],
       },
     },
   },
-  required: ['title', 'voice', 'speechRate', 'captions', 'musicVolume', 'scenes'],
+  required: ['title', 'voice', 'speechRate', 'captions', 'sfx', 'musicVolume', 'scenes'],
 } as const;

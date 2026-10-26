@@ -1,9 +1,42 @@
+import { existsSync, promises as fs } from 'node:fs';
+import path from 'node:path';
 import { FFMPEG, probeDuration, run } from './ffmpeg';
+
+export interface TtsWord {
+  text: string;
+  /** Seconds from the start of this audio file. */
+  start: number;
+  end: number;
+}
 
 export interface TtsResult {
   /** Audio file (any format FFmpeg reads). */
   file: string;
   duration: number;
+  /** Per-word timings when the engine provides them (used for karaoke captions). */
+  words?: TtsWord[];
+}
+
+const WORDS_HELPER = path.resolve(__dirname, '../scripts/edge_tts_words.py');
+
+function pythonBin(): string {
+  return process.env.EDGE_TTS_PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
+}
+
+/** Parse the helper's JSON output defensively. */
+export function parseTtsWords(raw: string): TtsWord[] {
+  const data: unknown = JSON.parse(raw);
+  if (!Array.isArray(data)) return [];
+  return data
+    .filter(
+      (w): w is TtsWord =>
+        !!w &&
+        typeof w.text === 'string' &&
+        Number.isFinite(w.start) &&
+        Number.isFinite(w.end) &&
+        w.end >= w.start,
+    )
+    .map((w) => ({ text: w.text, start: w.start, end: w.end }));
 }
 
 export interface TtsEngine {
@@ -27,6 +60,21 @@ export class EdgeTts implements TtsEngine {
     outFileNoExt: string,
   ): Promise<TtsResult> {
     const file = `${outFileNoExt}.mp3`;
+
+    // Preferred: the Python helper, which also returns word timings for karaoke captions.
+    if (existsSync(WORDS_HELPER)) {
+      const textFile = `${outFileNoExt}.txt`;
+      const wordsFile = `${outFileNoExt}.words.json`;
+      await fs.writeFile(textFile, text, 'utf8');
+      try {
+        await run(pythonBin(), [WORDS_HELPER, textFile, voice, rate, file, wordsFile]);
+        const words = parseTtsWords(await fs.readFile(wordsFile, 'utf8'));
+        return { file, duration: await probeDuration(file), words };
+      } catch {
+        // Fall through to the plain CLI (no word timings).
+      }
+    }
+
     // `--rate=+0%` must be glued with "=" or argparse reads "-5%" as a flag.
     try {
       await run(this.bin, [
