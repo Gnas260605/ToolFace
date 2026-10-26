@@ -14,6 +14,8 @@ import { SchedulerRecoveryProcessor } from './processors/scheduler-recovery.proc
 import { NotificationProcessor } from './processors/notification.processor';
 import { NotificationEmailProcessor } from './processors/notification-email.processor';
 import { OutboxRelayProcessor } from './processors/outbox-relay.processor';
+import { VideoRenderProcessor } from './processors/video-render.processor';
+import { VIDEO_RENDER_QUEUE } from '@newsflow/video-studio';
 import { DatabaseService } from './common/database.service';
 import { getServerEnv } from '@newsflow/config';
 import { GeminiAiProvider, OpenAiProvider, OpenRouterAiProvider, FallbackAiProvider, AiProvider } from '@newsflow/database';
@@ -39,6 +41,7 @@ import { GeminiAiProvider, OpenAiProvider, OpenRouterAiProvider, FallbackAiProvi
       { name: 'notifications' },
       { name: 'notification-email' },
       { name: 'maintenance' },
+      { name: VIDEO_RENDER_QUEUE },
     ),
   ],
   providers: [
@@ -57,6 +60,7 @@ import { GeminiAiProvider, OpenAiProvider, OpenRouterAiProvider, FallbackAiProvi
     NotificationProcessor,
     NotificationEmailProcessor,
     OutboxRelayProcessor,
+    VideoRenderProcessor,
     {
       provide: 'AiProvider',
       useFactory: (db: DatabaseService) => {

@@ -14,6 +14,7 @@ RUN pnpm --filter @newsflow/config build
 RUN pnpm --filter @newsflow/contracts build
 RUN pnpm --filter @newsflow/database db:generate
 RUN pnpm --filter @newsflow/database build
+RUN pnpm --filter @newsflow/video-studio build
 RUN pnpm --filter api build
 
 # Stage 2: Production runner
@@ -34,6 +35,7 @@ RUN pnpm --filter @newsflow/database db:generate
 COPY --from=builder /app/packages/config/dist ./packages/config/dist
 COPY --from=builder /app/packages/contracts/dist ./packages/contracts/dist
 COPY --from=builder /app/packages/database/dist ./packages/database/dist
+COPY --from=builder /app/packages/video-studio/dist ./packages/video-studio/dist
 RUN chown -R node:node /app
 
 USER node

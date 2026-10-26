@@ -9,3 +9,4 @@ export * from './sfx';
 export * from './cache';
 export * from './validate';
 export { CancelledError, CommandTimeoutError, withSignal } from './ffmpeg';
+export * from './jobs';

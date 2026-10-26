@@ -22,3 +22,4 @@ export * from './email/email-provider';
 export * from './saas/phase6';
 export * from './security/session-token.service';
 export * from './presets/reputable-sources';
+export * from './storage/object-storage';

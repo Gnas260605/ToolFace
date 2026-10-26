@@ -288,6 +288,7 @@ enum PromptTaskType {
   FACT_EXTRACTION
   DRAFT_GENERATION
   DRAFT_VERIFICATION
+  VIDEO_PLANNING
 }
 
 model BrandProfile {
@@ -1251,3 +1252,61 @@ model ImageLicense {
   @@map("image_licenses")
 }
 
+
+// ============================================================================
+// Video Studio — images + script -> edited video (packages/video-studio)
+// ============================================================================
+
+enum VideoJobStatus {
+  QUEUED
+  PLANNING
+  RENDERING
+  READY
+  FAILED
+  CANCELLED
+}
+
+model VideoJob {
+  id              String         @id @default(uuid())
+  workspaceId     String         @map("workspace_id")
+  createdByUserId String         @map("created_by_user_id")
+  title           String         @default("")
+  script          String
+  request         String?
+  style           String?
+  /// Output formats, e.g. ["9:16","16:9"]
+  aspectsJson     Json           @map("aspects_json")
+  voice           String?
+  /// { noVoice, noSfx, captionStyle }
+  optionsJson     Json?          @map("options_json")
+  /// Object-storage keys of the input images, in order
+  imageKeysJson   Json           @map("image_keys_json")
+  musicKey        String?        @map("music_key")
+  planJson        Json?          @map("plan_json")
+  /// Bumped on every plan edit; renders are tied to a revision
+  planRevision    Int            @default(0) @map("plan_revision")
+  plannerId       String?        @map("planner_id")
+  status          VideoJobStatus @default(QUEUED)
+  /// validating | planning | voice | rendering | uploading
+  stage           String?
+  progress        Int            @default(0)
+  /// preview | final: what the current/last render produces
+  renderKind      String?        @map("render_kind")
+  errorMessage    String?        @map("error_message")
+  /// [{ aspect, key, duration }] of the latest preview
+  previewJson     Json?          @map("preview_json")
+  previewRevision Int?           @map("preview_revision")
+  /// [{ aspect, key, duration }] of the latest final render
+  outputsJson     Json?          @map("outputs_json")
+  outputsRevision Int?           @map("outputs_revision")
+  cancelRequested Boolean        @default(false) @map("cancel_requested")
+  attempts        Int            @default(0)
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+  completedAt     DateTime?      @map("completed_at")
+  deletedAt       DateTime?      @map("deleted_at")
+
+  @@index([workspaceId, createdAt])
+  @@index([status, updatedAt])
+  @@map("video_jobs")
+}

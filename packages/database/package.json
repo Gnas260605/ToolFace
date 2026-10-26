@@ -11,9 +11,11 @@
     "db:deploy": "prisma migrate deploy"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3",
+    "@aws-sdk/s3-request-presigner": "^3",
     "@google/generative-ai": "^0.24.1",
-    "@newsflow/config": "workspace:*",
     "@mozilla/readability": "^0.5.0",
+    "@newsflow/config": "workspace:*",
     "@prisma/client": "^5.22.0",
     "date-fns": "^4.4.0",
     "date-fns-tz": "^3.2.0",

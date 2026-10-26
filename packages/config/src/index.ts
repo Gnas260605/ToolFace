@@ -26,6 +26,17 @@ export const serverSchema = z.object({
   S3_ACCESS_KEY: z.string(),
   S3_SECRET_KEY: z.string(),
   S3_FORCE_PATH_STYLE: z.enum(['true', 'false']).default('true'),
+  /** Endpoint browsers use for presigned download links, if different from S3_ENDPOINT. */
+  S3_PUBLIC_ENDPOINT: z.string().url().optional(),
+  // Video Studio
+  ANTHROPIC_API_KEY: z.string().optional(),
+  VIDEO_PLANNER_MODEL: z.string().default('claude-sonnet-5-5'),
+  /** USD per million tokens, used to estimate planning cost in ai_usage_events. */
+  VIDEO_PLANNER_USD_PER_MTOK_IN: z.coerce.number().min(0).default(3),
+  VIDEO_PLANNER_USD_PER_MTOK_OUT: z.coerce.number().min(0).default(15),
+  /** Renders per worker process; rendering is CPU-bound, keep it low. */
+  VIDEO_RENDER_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(1),
+  VIDEO_STUDIO_CACHE_DIR: z.string().optional(),
   BILLING_ENABLED: z.enum(['true', 'false']).default('true'),
   BILLING_PROVIDER: z.string().default('mock'),
   BILLING_SECRET_KEY: z.string().default(''),

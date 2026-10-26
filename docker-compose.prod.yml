@@ -22,6 +22,17 @@ services:
   redis:
     image: redis:7-alpine
     container_name: newsflow-redis-prod
+    # BullMQ needs noeviction (queues must never lose keys) and AOF persistence.
+    command:
+      [
+        'redis-server',
+        '--appendonly',
+        'yes',
+        '--appendfsync',
+        'everysec',
+        '--maxmemory-policy',
+        'noeviction',
+      ]
     ports:
       - '6379:6379'
     volumes:
@@ -93,6 +104,10 @@ services:
         condition: service_healthy
     env_file:
       - .env.prod
+    volumes:
+      - video_cache_prod:/var/cache/video-studio
+    # Let an in-flight render finish (or be re-queued) on deploy.
+    stop_grace_period: 2m
     restart: unless-stopped
 
   web:
@@ -127,6 +142,8 @@ services:
     restart: unless-stopped
 
 volumes:
+  video_cache_prod:
+    name: newsflow_video_cache_prod
   pg_data_prod:
     name: newsflow_pg_data_prod
   redis_data_prod:

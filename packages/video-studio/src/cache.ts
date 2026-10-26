@@ -79,6 +79,50 @@ export class FileCache {
     return this.getOrCreate(key, ext, (tmp) => fs.copyFile(source, tmp));
   }
 
+  /**
+   * Keep the cache under `maxBytes` by deleting the least recently used entries
+   * (by access/modify time). Returns the number of bytes freed.
+   */
+  async prune(maxBytes: number): Promise<number> {
+    const entries: { file: string; size: number; time: number }[] = [];
+    let total = 0;
+    let dirs: string[] = [];
+    try {
+      dirs = await fs.readdir(this.dir);
+    } catch {
+      return 0;
+    }
+    for (const d of dirs) {
+      const sub = path.join(this.dir, d);
+      let files: string[] = [];
+      try {
+        files = await fs.readdir(sub);
+      } catch {
+        continue;
+      }
+      for (const f of files) {
+        const file = path.join(sub, f);
+        try {
+          const st = await fs.stat(file);
+          if (!st.isFile()) continue;
+          entries.push({ file, size: st.size, time: Math.max(st.atimeMs, st.mtimeMs) });
+          total += st.size;
+        } catch {
+          // removed concurrently
+        }
+      }
+    }
+    if (total <= maxBytes) return 0;
+    entries.sort((a, b) => a.time - b.time);
+    let freed = 0;
+    for (const e of entries) {
+      if (total - freed <= maxBytes) break;
+      await fs.rm(e.file, { force: true });
+      freed += e.size;
+    }
+    return freed;
+  }
+
   private async tempPath(key: string, ext: string): Promise<string> {
     const dir = path.join(this.dir, key.slice(0, 2));
     await fs.mkdir(dir, { recursive: true });

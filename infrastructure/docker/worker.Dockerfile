@@ -14,11 +14,16 @@ RUN pnpm --filter @newsflow/config build
 RUN pnpm --filter @newsflow/contracts build
 RUN pnpm --filter @newsflow/database db:generate
 RUN pnpm --filter @newsflow/database build
+RUN pnpm --filter @newsflow/video-studio build
 RUN pnpm --filter worker build
 
 # Stage 2: Production runner
 FROM node:20-slim AS runner
-RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+# Video Studio runtime: FFmpeg (libass for captions), fonts with Vietnamese glyphs, Edge TTS.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl ffmpeg fonts-dejavu-core python3 python3-pip \
+  && pip3 install --no-cache-dir --break-system-packages 'edge-tts>=7,<8' \
+  && rm -rf /var/lib/apt/lists/*
 RUN npm install -g pnpm@9.5.0
 
 WORKDIR /app
@@ -34,6 +39,10 @@ RUN pnpm --filter @newsflow/database db:generate
 COPY --from=builder /app/packages/config/dist ./packages/config/dist
 COPY --from=builder /app/packages/contracts/dist ./packages/contracts/dist
 COPY --from=builder /app/packages/database/dist ./packages/database/dist
+COPY --from=builder /app/packages/video-studio/dist ./packages/video-studio/dist
+# Render scratch space and the shared content cache (mount a volume at /var/cache/video-studio).
+ENV VIDEO_STUDIO_CACHE_DIR=/var/cache/video-studio
+RUN mkdir -p /var/cache/video-studio && chown -R node:node /var/cache/video-studio
 RUN chown -R node:node /app
 
 USER node
