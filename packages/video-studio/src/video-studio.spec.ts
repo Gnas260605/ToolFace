@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -15,10 +15,13 @@ import {
 } from './captions';
 import { buildSfxGraph, planSfx } from './sfx';
 import { parseTtsWords } from './tts';
-import { FFMPEG, run } from './ffmpeg';
-import { EditPlan, parseEditPlan } from './plan';
-import { ClaudePlanner, HeuristicPlanner, splitSentences } from './planner';
-import { buildFinalGraph, motionExpr } from './render';
+import { CancelledError, CommandTimeoutError, FFMPEG, run, withSignal } from './ffmpeg';
+import { CachedTts } from './tts';
+import { FileCache } from './cache';
+import { DEFAULT_LIMITS, InputValidationError, validateInputs } from './validate';
+import { EditPlan, frameSize, parseEditPlan } from './plan';
+import { ClaudePlanner, HeuristicPlanner, PlannerError, splitSentences } from './planner';
+import { buildFinalGraph, encoderArgs, motionExpr } from './render';
 import { outputPathFor } from './studio';
 import { buildTimeline, TIMING } from './timeline';
 
@@ -435,5 +438,225 @@ describe('outputPathFor', () => {
   it('suffixes the aspect only when rendering several formats', () => {
     expect(outputPathFor('/x/v.mp4', '9:16', false)).toBe('/x/v.mp4');
     expect(outputPathFor('/x/v.mp4', '16:9', true)).toBe('/x/v-16x9.mp4');
+  });
+});
+
+describe('production hardening', () => {
+  const tmp = () => mkdtempSync(path.join(os.tmpdir(), 'vs-prod-'));
+
+  it('keeps 9:16 captions and hook out of the app UI areas', () => {
+    const plan = samplePlan({ hookText: 'Hook' });
+    const ass = buildAss(plan, buildTimeline(plan, [2, 0, 1]), {
+      aspect: '9:16',
+      fontName: 'Arial',
+    });
+    const caption = ass
+      .split('\n')
+      .find((l) => l.startsWith('Style: Caption'))!
+      .split(',');
+    const hook = ass
+      .split('\n')
+      .find((l) => l.startsWith('Style: Hook'))!
+      .split(',');
+    // MarginV is the 22nd field; bottom captions sit above the bottom 40% (Reels UI + action rail)
+    expect(Number(caption[21])).toBeGreaterThanOrEqual(Math.round(1920 * 0.4));
+    expect(Number(hook[21])).toBeGreaterThanOrEqual(Math.round(1920 * 0.14));
+    // side margins ≥ 6%
+    expect(Number(caption[19])).toBeGreaterThanOrEqual(Math.round(1080 * 0.06));
+  });
+
+  it('previews render at half resolution with the same layout', () => {
+    expect(frameSize('9:16', 'preview')).toEqual({ width: 540, height: 960 });
+    expect(frameSize('16:9', 'final')).toEqual({ width: 1920, height: 1080 });
+    const plan = samplePlan();
+    const ass = buildAss(plan, buildTimeline(plan, [2, 0, 1]), {
+      aspect: '9:16',
+      quality: 'preview',
+      fontName: 'Arial',
+    });
+    expect(ass).toContain('PlayResX: 540');
+  });
+
+  it('final encode follows the platform recommendations', () => {
+    const args = encoderArgs('final').join(' ');
+    expect(args).toContain('-profile:v high');
+    expect(args).toContain('-g 15');
+    expect(args).toContain('-bf 2');
+    expect(args).toContain('-ar 48000');
+    expect(args).toContain('+faststart');
+  });
+
+  it('file cache writes atomically and reuses entries', async () => {
+    const cache = new FileCache(tmp());
+    let calls = 0;
+    const make = async (p: string) => {
+      calls++;
+      await fs.writeFile(p, 'x');
+    };
+    const a = await cache.getOrCreate('abcd', '.txt', make);
+    const b = await cache.getOrCreate('abcd', '.txt', make);
+    expect(a).toBe(b);
+    expect(calls).toBe(1);
+    await expect(
+      cache.getOrCreate('efgh', '.txt', async () => Promise.reject(new Error('boom'))),
+    ).rejects.toThrow('boom');
+    expect(cache.has('efgh', '.txt')).toBe(false);
+  });
+
+  it('caches TTS output per text + voice + rate', async () => {
+    const dir = tmp();
+    let calls = 0;
+    const inner = {
+      name: 'fake',
+      synthesize: async (_t: string, _v: string, _r: string, out: string) => {
+        calls++;
+        await fs.writeFile(`${out}.mp3`, 'audio');
+        return { file: `${out}.mp3`, duration: 1.5, words: [{ text: 'a', start: 0, end: 0.3 }] };
+      },
+    };
+    const tts = new CachedTts(inner, new FileCache(path.join(dir, 'cache')));
+    const r1 = await tts.synthesize('xin chào', 'v', '+0%', path.join(dir, 'a'));
+    const r2 = await tts.synthesize('xin chào', 'v', '+0%', path.join(dir, 'b'));
+    await tts.synthesize('xin chào', 'v', '+10%', path.join(dir, 'c'));
+    expect(calls).toBe(2);
+    expect(r2.file).toBe(r1.file);
+    expect(r2.words).toEqual([{ text: 'a', start: 0, end: 0.3 }]);
+  });
+
+  it.skipIf(!hasFfmpeg)('rejects files that are not real images or are too large', async () => {
+    const dir = tmp();
+    const fake = path.join(dir, 'fake.jpg');
+    await fs.writeFile(fake, '#EXTM3U\nhttp://example.com/x.ts\n');
+    await expect(validateInputs({ images: [fake], script: 'a' })).rejects.toThrow(
+      InputValidationError,
+    );
+    const img = path.join(dir, 'ok.png');
+    await run(FFMPEG, [
+      '-y',
+      '-v',
+      'error',
+      '-f',
+      'lavfi',
+      '-i',
+      'color=blue:s=64x64',
+      '-frames:v',
+      '1',
+      img,
+    ]);
+    await expect(validateInputs({ images: [img], script: 'a' })).resolves.toBeUndefined();
+    await expect(
+      validateInputs({ images: [img], script: 'a' }, { ...DEFAULT_LIMITS, maxImageSide: 32 }),
+    ).rejects.toThrow('longest side');
+    await expect(
+      validateInputs(
+        { images: [img], script: 'x'.repeat(10) },
+        { ...DEFAULT_LIMITS, maxScriptChars: 5 },
+      ),
+    ).rejects.toThrow('characters');
+  });
+
+  it.skipIf(!hasFfmpeg)('stops commands on timeout and on cancel', async () => {
+    const slow = ['-v', 'error', '-re', '-f', 'lavfi', '-i', 'sine=d=600', '-f', 'null', '-'];
+    await expect(run(FFMPEG, slow, { timeoutMs: 300 })).rejects.toBeInstanceOf(CommandTimeoutError);
+    const ac = new AbortController();
+    const p = withSignal(ac.signal, () => run(FFMPEG, slow));
+    setTimeout(() => ac.abort(), 200);
+    await expect(p).rejects.toBeInstanceOf(CancelledError);
+  });
+
+  it('Claude planner: strict tool, usage reporting, retry on max_tokens, refusal', async () => {
+    const dir = tmp();
+    const img = path.join(dir, 'a.png');
+    if (hasFfmpeg) {
+      await run(FFMPEG, [
+        '-y',
+        '-v',
+        'error',
+        '-f',
+        'lavfi',
+        '-i',
+        'color=red:s=32x32',
+        '-frames:v',
+        '1',
+        img,
+      ]);
+    } else return;
+    const input = {
+      title: 'x',
+      voice: 'vi-VN-HoaiMyNeural',
+      speechRate: '+0%',
+      captions: {
+        enabled: true,
+        style: 'pop',
+        box: true,
+        position: 'center',
+        color: '#FFFFFF',
+        highlightColor: '#00E5FF',
+        uppercase: false,
+        scale: 1,
+      },
+      sfx: { enabled: true, volume: 0.5, captionPop: false },
+      musicVolume: 0.1,
+      scenes: [
+        {
+          imageIndex: 0,
+          narration: 'Chào',
+          motion: 'zoom_in',
+          fit: 'cover',
+          transition: 'fade',
+          minDuration: 2,
+        },
+      ],
+      post: { caption: 'Xem ngay', hashtags: ['shop', '#ban hang'], youtubeTitle: 'Tiêu đề' },
+    };
+    const calls: any[] = [];
+    const responses = [
+      {
+        stop_reason: 'max_tokens',
+        model: 'm',
+        usage: { input_tokens: 100, output_tokens: 16000 },
+        content: [],
+      },
+      {
+        stop_reason: 'tool_use',
+        model: 'm',
+        usage: { input_tokens: 100, output_tokens: 500, cache_read_input_tokens: 80 },
+        content: [{ type: 'tool_use', id: 't', name: 'submit_edit_plan', input }],
+      },
+    ];
+    const client = {
+      messages: {
+        create: async (p: any) => {
+          calls.push(p);
+          return responses.shift();
+        },
+      },
+    } as any;
+    const usage: any[] = [];
+    const plan = await new ClaudePlanner(dir, { client }).plan({
+      images: [img],
+      script: 'Chào',
+      aspect: '9:16',
+      onUsage: (u) => {
+        usage.push(u);
+      },
+    });
+    expect(calls[0].tools[0].strict).toBe(true);
+    expect(calls[0].system[0].cache_control).toEqual({ type: 'ephemeral' });
+    expect(calls[1].max_tokens).toBe(32000);
+    expect(usage).toHaveLength(2);
+    expect(usage[1]).toMatchObject({ inputTokens: 100, outputTokens: 500, cacheReadTokens: 80 });
+    expect(plan.post?.hashtags).toEqual(['#shop', '#banhang']);
+
+    const refuse = {
+      messages: { create: async () => ({ stop_reason: 'refusal', usage: {}, content: [] }) },
+    } as any;
+    await expect(
+      new ClaudePlanner(dir, { client: refuse }).plan({
+        images: [img],
+        script: 'x',
+        aspect: '9:16',
+      }),
+    ).rejects.toBeInstanceOf(PlannerError);
   });
 });

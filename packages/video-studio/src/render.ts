@@ -2,8 +2,9 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { buildAss, buildCaptionCues, WordTiming } from './captions';
-import { FFMPEG, run, sec } from './ffmpeg';
-import { Aspect, EditPlan, Fit, Motion, RESOLUTIONS } from './plan';
+import { FileCache, hashFile, hashOf } from './cache';
+import { FFMPEG, run, sec, throwIfCancelled } from './ffmpeg';
+import { Aspect, EditPlan, Fit, Motion, Quality, SAFE_ZONES, frameSize } from './plan';
 import { planSfx, renderSfxTrack } from './sfx';
 import { TimedScene, Timeline } from './timeline';
 
@@ -62,8 +63,9 @@ export async function renderSceneClip(
   ts: TimedScene,
   aspect: Aspect,
   outFile: string,
+  quality: Quality = 'final',
 ): Promise<void> {
-  const { width: w, height: h } = RESOLUTIONS[aspect];
+  const { width: w, height: h } = frameSize(aspect, quality);
   const scene = plan.scenes[ts.index];
   const frames = Math.max(2, Math.round(ts.clipLength * FPS));
   const m = motionExpr(scene.motion, frames);
@@ -76,6 +78,8 @@ export async function renderSceneClip(
     '-y',
     '-v',
     'error',
+    '-protocol_whitelist',
+    'file',
     '-i',
     image,
     '-filter_complex',
@@ -89,14 +93,85 @@ export async function renderSceneClip(
     '-c:v',
     'libx264',
     '-preset',
-    'veryfast',
+    quality === 'final' ? 'veryfast' : 'ultrafast',
     '-crf',
-    '18',
+    // Intermediate clips are re-encoded once more, so keep them near-lossless.
+    quality === 'final' ? '14' : '24',
     '-pix_fmt',
     'yuv420p',
     '-an',
     outFile,
   ]);
+}
+
+/**
+ * Encoder settings for the delivered file. Final follows YouTube's upload recommendations
+ * (H.264 High, closed GOP of half the frame rate, 2 B-frames, 48 kHz AAC, moov atom first);
+ * TikTok and Reels accept the same file.
+ */
+export function encoderArgs(quality: Quality): string[] {
+  if (quality === 'preview') {
+    return [
+      '-c:v',
+      'libx264',
+      '-preset',
+      'ultrafast',
+      '-crf',
+      '28',
+      '-pix_fmt',
+      'yuv420p',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '128k',
+      '-ar',
+      '48000',
+      '-movflags',
+      '+faststart',
+    ];
+  }
+  return [
+    '-c:v',
+    'libx264',
+    '-profile:v',
+    'high',
+    '-preset',
+    'veryfast',
+    '-crf',
+    '18',
+    '-maxrate',
+    '12M',
+    '-bufsize',
+    '24M',
+    '-g',
+    String(FPS / 2),
+    '-keyint_min',
+    String(FPS / 2),
+    '-sc_threshold',
+    '0',
+    '-bf',
+    '2',
+    '-flags',
+    '+cgop',
+    '-pix_fmt',
+    'yuv420p',
+    '-color_primaries',
+    'bt709',
+    '-color_trc',
+    'bt709',
+    '-colorspace',
+    'bt709',
+    '-c:a',
+    'aac',
+    '-b:a',
+    '320k',
+    '-ar',
+    '48000',
+    '-ac',
+    '2',
+    '-movflags',
+    '+faststart',
+  ];
 }
 
 /** Run async jobs with a concurrency limit. */
@@ -133,6 +208,16 @@ export interface RenderInput {
   sceneWords?: (WordTiming[] | undefined)[];
   /** Folder with your own sound effects (whoosh, pop, tick, hit .wav/.mp3) to replace the built-in ones. */
   sfxDir?: string;
+  /** preview = half resolution + fast encode (default final). */
+  quality?: Quality;
+  /** Shade the areas covered by the TikTok/Reels UI (for previews). */
+  safeZoneGuides?: boolean;
+  /** Reuse rendered scene clips across runs. */
+  cache?: FileCache;
+  /** Written into the file's metadata. */
+  metadata?: Record<string, string>;
+  /** 0–1 progress of this render. */
+  onProgress?: (fraction: number) => void;
   log?: (msg: string) => void;
 }
 
@@ -148,6 +233,8 @@ export function defaultFontName(): string {
 export function buildFinalGraph(
   input: Pick<RenderInput, 'timeline' | 'narration' | 'music' | 'plan' | 'fontsDir'> & {
     sfxTrack?: string | null;
+    /** Shade these UI areas (fractions of the frame) on top of the picture. */
+    guides?: { top: number; bottom: number; side: number } | null;
   },
   assFileName: string,
 ): {
@@ -182,7 +269,17 @@ export function buildFinalGraph(
   const fontsDir = input.fontsDir
     ? `:fontsdir='${input.fontsDir.replace(/\\/g, '/').replace(/:/g, '\\:')}'`
     : '';
-  parts.push(`[vx]ass=${assFileName}${fontsDir},format=yuv420p[vout]`);
+  let guides = '';
+  if (input.guides) {
+    const g = input.guides;
+    const shade = 'color=red@0.22:t=fill';
+    guides =
+      `,drawbox=x=0:y=0:w=iw:h=ih*${g.top}:${shade}` +
+      `,drawbox=x=0:y=ih*${(1 - g.bottom).toFixed(3)}:w=iw:h=ih*${g.bottom}:${shade}` +
+      `,drawbox=x=0:y=ih*${g.top}:w=iw*${g.side}:h=ih*${(1 - g.top - g.bottom).toFixed(3)}:${shade}` +
+      `,drawbox=x=iw*${(1 - g.side).toFixed(3)}:y=ih*${g.top}:w=iw*${g.side}:h=ih*${(1 - g.top - g.bottom).toFixed(3)}:${shade}`;
+  }
+  parts.push(`[vx]ass=${assFileName}${fontsDir}${guides},format=yuv420p[vout]`);
 
   // --- audio: silence bed + delayed narration + optional ducked music
   let idx = n;
@@ -232,40 +329,65 @@ export function buildFinalGraph(
   } else {
     parts.push(`[bed]anull[mix]`);
   }
-  parts.push(`[mix]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=44100[aout]`);
+  parts.push(`[mix]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[aout]`);
 
   return { graph: parts.join(';\n'), voiceInputs, musicInput, silenceInput, sfxInput };
 }
 
 export async function renderVideo(input: RenderInput): Promise<string> {
   const log = input.log ?? (() => undefined);
+  const progress = input.onProgress ?? (() => undefined);
   const { plan, timeline, aspect, workDir } = input;
+  const quality: Quality = input.quality ?? 'final';
   await fs.mkdir(workDir, { recursive: true });
+  const tag = `${aspect.replace(':', 'x')}-${quality}`;
 
-  // 1) One clip per scene.
-  const clips = timeline.scenes.map((ts) =>
-    path.join(workDir, `clip-${aspect.replace(':', 'x')}-${ts.index}.mp4`),
-  );
+  // 1) One clip per scene, reused from the cache when image + motion + length are unchanged.
+  const imageHashes = new Map<string, Promise<string>>();
+  const imageHash = (file: string) => {
+    if (!imageHashes.has(file)) imageHashes.set(file, hashFile(file));
+    return imageHashes.get(file)!;
+  };
+  const clips: string[] = new Array(timeline.scenes.length);
   const concurrency = Math.max(1, Math.min(4, Math.floor(os.cpus().length / 2)));
   let done = 0;
+  let reused = 0;
   await pool(timeline.scenes, concurrency, async (ts, i) => {
-    await renderSceneClip(
-      input.images[plan.scenes[ts.index].imageIndex],
-      plan,
-      ts,
-      aspect,
-      clips[i],
-    );
-    log(`  scene ${++done}/${clips.length} rendered`);
+    throwIfCancelled();
+    const scene = plan.scenes[ts.index];
+    const image = input.images[scene.imageIndex];
+    const frames = Math.max(2, Math.round(ts.clipLength * FPS));
+    if (input.cache) {
+      const key = hashOf(
+        'clip-v1',
+        await imageHash(image),
+        scene.motion,
+        scene.fit,
+        frames,
+        aspect,
+        quality,
+      );
+      const hit = input.cache.has(key, '.mp4');
+      clips[i] = await input.cache.getOrCreate(key, '.mp4', (tmp) =>
+        renderSceneClip(image, plan, ts, aspect, tmp, quality),
+      );
+      if (hit) reused++;
+    } else {
+      clips[i] = path.join(workDir, `clip-${tag}-${ts.index}.mp4`);
+      await renderSceneClip(image, plan, ts, aspect, clips[i], quality);
+    }
+    done++;
+    progress((done / timeline.scenes.length) * 0.8);
   });
+  log(`  ${clips.length} scenes ready${reused ? ` (${reused} reused from cache)` : ''}`);
 
   // 2) Captions.
-  const tag = aspect.replace(':', 'x');
   const assName = `captions-${tag}.ass`;
   await fs.writeFile(
     path.join(workDir, assName),
     buildAss(plan, timeline, {
       aspect,
+      quality,
       fontName: input.fontName || defaultFontName(),
       sceneWords: input.sceneWords,
     }),
@@ -281,19 +403,23 @@ export async function renderVideo(input: RenderInput): Promise<string> {
   if (events.length) log(`  ${events.length} sound effects placed`);
 
   // 4) Assemble.
-  const { graph } = buildFinalGraph({ ...input, sfxTrack }, assName);
-  const graphFile = path.join(workDir, `final-${aspect.replace(':', 'x')}.filtergraph`);
+  throwIfCancelled();
+  const guides = input.safeZoneGuides && aspect === '9:16' ? SAFE_ZONES[aspect] : null;
+  const { graph } = buildFinalGraph({ ...input, sfxTrack, guides }, assName);
+  const graphFile = path.join(workDir, `final-${tag}.filtergraph`);
   await fs.writeFile(graphFile, graph, 'utf8');
 
-  const args: string[] = ['-y', '-v', 'error', '-stats'];
+  const args: string[] = ['-y', '-v', 'error', '-progress', 'pipe:2', '-nostats'];
   for (const clip of clips) args.push('-i', clip);
   args.push('-f', 'lavfi', '-t', sec(timeline.total), '-i', 'anullsrc=r=44100:cl=stereo');
   for (const file of input.narration) if (file) args.push('-i', file);
-  if (input.music) args.push('-stream_loop', '-1', '-i', input.music);
+  if (input.music)
+    args.push('-protocol_whitelist', 'file', '-stream_loop', '-1', '-i', input.music);
   if (sfxTrack) args.push('-i', sfxTrack);
 
   const output = path.resolve(input.output);
   await fs.mkdir(path.dirname(output), { recursive: true });
+  const meta = { comment: 'Made with AI (toolface video-studio)', ...input.metadata };
   args.push(
     '-filter_complex_script',
     path.basename(graphFile),
@@ -305,24 +431,19 @@ export async function renderVideo(input: RenderInput): Promise<string> {
     sec(timeline.total),
     '-r',
     String(FPS),
-    '-c:v',
-    'libx264',
-    '-preset',
-    'veryfast',
-    '-crf',
-    '20',
-    '-pix_fmt',
-    'yuv420p',
-    '-c:a',
-    'aac',
-    '-b:a',
-    '192k',
-    '-movflags',
-    '+faststart',
+    ...encoderArgs(quality),
+    ...Object.entries(meta).flatMap(([k, v]) => ['-metadata', `${k}=${v}`]),
     output,
   );
-  log(`  assembling ${aspect} (${timeline.total.toFixed(1)}s)…`);
+  log(`  assembling ${aspect} ${quality} (${timeline.total.toFixed(1)}s)…`);
   // cwd = workDir so the captions/filtergraph files are referenced without drive-letter escaping.
-  await run(FFMPEG, args, { cwd: workDir });
+  await run(FFMPEG, args, {
+    cwd: workDir,
+    onStderr: (chunk) => {
+      const m = /out_time_us=(\d+)/.exec(chunk);
+      if (m) progress(0.8 + 0.2 * Math.min(1, Number(m[1]) / 1e6 / timeline.total));
+    },
+  });
+  progress(1);
   return output;
 }

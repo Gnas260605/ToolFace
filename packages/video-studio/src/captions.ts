@@ -1,4 +1,4 @@
-import { Aspect, EditPlan, RESOLUTIONS } from './plan';
+import { Aspect, EditPlan, Quality, SAFE_ZONES, frameSize } from './plan';
 import { Timeline } from './timeline';
 
 /** A word with absolute times on the output timeline (seconds). */
@@ -196,6 +196,7 @@ function escapeAss(text: string): string {
 
 export interface CaptionOptions {
   aspect: Aspect;
+  quality?: Quality;
   fontName: string;
   /** Word timings from the TTS per scene, relative to the narration start. */
   sceneWords?: (WordTiming[] | undefined)[];
@@ -228,22 +229,21 @@ const ACTIVE_SCALE = 112;
 
 /** Build a complete .ass subtitle file (captions + optional hook headline). */
 export function buildAss(plan: EditPlan, timeline: Timeline, opts: CaptionOptions): string {
-  const { width: W, height: H } = RESOLUTIONS[opts.aspect];
+  const { width: W, height: H } = frameSize(opts.aspect, opts.quality);
+  const safe = SAFE_ZONES[opts.aspect];
   const c = plan.captions;
   const sizeFactor: Record<Aspect, number> = { '9:16': 0.08, '1:1': 0.07, '16:9': 0.058 };
   const base = Math.min(W, H) * sizeFactor[opts.aspect] * c.scale;
   const fontSize = Math.round(base);
   const hookSize = Math.round(base * 1.2);
   const outline = Math.max(4, Math.round(fontSize / 9));
-  const marginLR = Math.round(W * 0.07);
+  const marginLR = Math.round(W * Math.max(0.07, safe.side + 0.01));
   const hl = assColor(c.highlightColor);
 
   const alignment = c.position === 'top' ? 8 : c.position === 'center' ? 5 : 2;
-  // Keep bottom captions above TikTok/Reels UI on vertical video.
-  const marginV =
-    c.position === 'bottom'
-      ? Math.round(H * (opts.aspect === '9:16' ? 0.18 : 0.08))
-      : Math.round(H * 0.1);
+  // Keep text out of the areas TikTok/Reels/Shorts cover with their UI.
+  const marginV = Math.round(H * (c.position === 'bottom' ? safe.bottom : safe.top + 0.02));
+  const hookMarginV = Math.round(H * (safe.top + 0.01));
 
   // BorderStyle 1 = thick outline + drop shadow; 3 = opaque box (Outline = padding).
   const captionBorder = c.box ? `3,${Math.round(fontSize / 5)},0` : `1,${outline},4`;
@@ -262,7 +262,7 @@ YCbCr Matrix: TV.709
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Caption,${opts.fontName},${fontSize},${assColor(c.color)},${hl},${captionOutline},${captionBack},-1,0,0,0,100,100,1,0,${captionBorder},${alignment},${marginLR},${marginLR},${marginV},1
-Style: Hook,${opts.fontName},${hookSize},&H00000000,${assColor(c.color)},${hl},&H00000000,-1,0,0,0,100,100,1,0,3,${Math.round(hookSize / 4)},0,8,${marginLR},${marginLR},${Math.round(H * 0.11)},1
+Style: Hook,${opts.fontName},${hookSize},&H00000000,${assColor(c.color)},${hl},&H00000000,-1,0,0,0,100,100,1,0,3,${Math.round(hookSize / 4)},0,8,${marginLR},${marginLR},${hookMarginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

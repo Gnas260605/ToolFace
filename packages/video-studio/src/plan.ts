@@ -10,6 +10,31 @@ export const RESOLUTIONS: Record<Aspect, { width: number; height: number }> = {
   '1:1': { width: 1080, height: 1080 },
 };
 
+/** preview = half resolution, fast encode, for reviewing; final = full quality for publishing. */
+export const QUALITIES = ['preview', 'final'] as const;
+export type Quality = (typeof QUALITIES)[number];
+
+/** Output frame size for an aspect and quality (even numbers, as H.264 requires). */
+export function frameSize(
+  aspect: Aspect,
+  quality: Quality = 'final',
+): { width: number; height: number } {
+  const r = RESOLUTIONS[aspect];
+  if (quality === 'final') return r;
+  return { width: Math.round(r.width / 4) * 2, height: Math.round(r.height / 4) * 2 };
+}
+
+/**
+ * Areas covered by app UI (fractions of the frame), from Instagram Reels guidance:
+ * top 14%, bottom 35%, sides 6%, and the action rail over the bottom 40% on the right.
+ * Feed formats (16:9, 1:1) have no overlay, only a comfortable margin.
+ */
+export const SAFE_ZONES: Record<Aspect, { top: number; bottom: number; side: number }> = {
+  '9:16': { top: 0.14, bottom: 0.4, side: 0.07 },
+  '1:1': { top: 0.06, bottom: 0.08, side: 0.06 },
+  '16:9': { top: 0.06, bottom: 0.08, side: 0.06 },
+};
+
 export const MOTIONS = [
   'zoom_in',
   'zoom_out',
@@ -84,6 +109,30 @@ const DEFAULT_CAPTIONS = {
 
 const DEFAULT_SFX = { enabled: true, volume: 0.8, captionPop: true };
 
+/** Ready-to-paste text for publishing the video. */
+export const PostMetadataSchema = z.object({
+  /** Post caption for TikTok / Reels / Facebook, same language as the script. */
+  caption: z.string().default(''),
+  /** Hashtags without spaces, each starting with "#". */
+  hashtags: z
+    .array(z.string())
+    .catch([])
+    .default([])
+    .transform((tags) =>
+      tags
+        .map((t) => t.trim().replace(/\s+/g, ''))
+        .filter(Boolean)
+        .map((t) => (t.startsWith('#') ? t : `#${t}`))
+        .slice(0, 10),
+    ),
+  /** Title for YouTube Shorts (≤ 100 characters). */
+  youtubeTitle: z
+    .string()
+    .default('')
+    .transform((t) => t.slice(0, 100)),
+});
+export type PostMetadata = z.infer<typeof PostMetadataSchema>;
+
 export const EditPlanSchema = z.object({
   title: z.string().default('video'),
   /** Big text shown on top of the first seconds — the scroll-stopping hook. */
@@ -121,7 +170,8 @@ export const EditPlanSchema = z.object({
     .default(DEFAULT_SFX),
   /** Background music loudness 0–1 (only used when a music file is given). */
   musicVolume: z.number().min(0).max(1).catch(0.15),
-  scenes: z.array(SceneSchema).min(1),
+  scenes: z.array(SceneSchema).min(1).max(60),
+  post: PostMetadataSchema.optional(),
 });
 export type EditPlan = z.infer<typeof EditPlanSchema>;
 
@@ -170,6 +220,7 @@ export const EDIT_PLAN_JSON_SCHEMA = {
         uppercase: { type: 'boolean' },
         scale: { type: 'number', description: 'Font size multiplier 0.5-2' },
       },
+      additionalProperties: false,
       required: [
         'enabled',
         'style',
@@ -194,6 +245,7 @@ export const EDIT_PLAN_JSON_SCHEMA = {
         },
       },
       required: ['enabled', 'volume', 'captionPop'],
+      additionalProperties: false,
     },
     musicVolume: { type: 'number', description: 'Background music volume 0-1 under the voice' },
     scenes: {
@@ -229,8 +281,29 @@ export const EDIT_PLAN_JSON_SCHEMA = {
           },
         },
         required: ['imageIndex', 'narration', 'motion', 'fit', 'transition', 'minDuration'],
+        additionalProperties: false,
       },
     },
+    post: {
+      type: 'object',
+      description: 'Text to publish with the video, same language as the script',
+      properties: {
+        caption: {
+          type: 'string',
+          description:
+            '1-3 short sentences for the post, ending with a call to action; no hashtags here',
+        },
+        hashtags: {
+          type: 'array',
+          items: { type: 'string' },
+          description: '3-8 relevant hashtags, each starting with #',
+        },
+        youtubeTitle: { type: 'string', description: 'YouTube Shorts title, max 100 characters' },
+      },
+      required: ['caption', 'hashtags', 'youtubeTitle'],
+      additionalProperties: false,
+    },
   },
-  required: ['title', 'voice', 'speechRate', 'captions', 'sfx', 'musicVolume', 'scenes'],
+  required: ['title', 'voice', 'speechRate', 'captions', 'sfx', 'musicVolume', 'scenes', 'post'],
+  additionalProperties: false,
 } as const;

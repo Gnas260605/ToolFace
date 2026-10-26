@@ -13,6 +13,16 @@ import {
   parseEditPlan,
 } from './plan';
 
+export interface PlanUsage {
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  durationMs: number;
+}
+
 export interface PlanRequest {
   images: string[];
   /** The narration script. */
@@ -24,11 +34,26 @@ export interface PlanRequest {
   aspect: Aspect;
   /** Force a voice instead of letting the planner choose. */
   voice?: string;
+  /** Called once per model call with token usage (for cost tracking). */
+  onUsage?: (usage: PlanUsage) => void | Promise<void>;
+  signal?: AbortSignal;
 }
 
 export interface Planner {
+  /** Identifies the planner + prompt version, so cached plans are reused only when it matches. */
+  readonly id: string;
   plan(req: PlanRequest): Promise<EditPlan>;
 }
+
+export class PlannerError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PlannerError';
+  }
+}
+
+/** Bump when the prompt or schema changes so cached plans are not reused across versions. */
+export const PLAN_PROMPT_VERSION = 'plan-v3';
 
 const SYSTEM_PROMPT = `You are a senior short-form video editor. You receive numbered images, a narration script, the creator's request and a style description. You decide how to cut the video and return the edit plan by calling the submit_edit_plan tool.
 
@@ -41,9 +66,10 @@ Rules:
 - transition: match the style. Energetic: slides, smooth, zoomin, some cuts. Calm/cinematic: fade, dissolve, fadeblack. Don't use the same one every time unless the style asks for it.
 - hookText: a short headline for the first seconds when the platform is TikTok/Reels/Shorts or the request asks for a hook; otherwise omit it.
 - voice: vi-VN-HoaiMyNeural (female) or vi-VN-NamMinhNeural (male), whichever suits the content and the request.
-- captions: usually enabled; position "bottom" for 16:9, "center" or "bottom" for 9:16 — keep them away from faces. style "karaoke" (spoken word lights up) for TikTok/Reels/Shorts and energetic content, "pop" for punchy promos, "plain" for calm or formal videos. box=true when the images are busy or bright behind the text. Choose highlightColor to pop against the images (yellow #FFD400, green #39FF14, cyan #00E5FF, pink #FF2E93...).
+- captions: usually enabled; position "center" or "bottom" (the renderer keeps both clear of the app UI). style "karaoke" (spoken word lights up) for TikTok/Reels/Shorts and energetic content, "pop" for punchy promos, "plain" for calm or formal videos. box=true when the images are busy or bright behind the text. Choose highlightColor to pop against the images (yellow #FFD400, green #39FF14, cyan #00E5FF, pink #FF2E93...).
 - emphasis: per scene, 0-3 words copied exactly from that scene's narration that carry the message (numbers, prices, product names, strong verbs). They are coloured in the captions.
 - sfx: whoosh on image changes, pop as caption lines appear, hit under the hook. enabled for social videos; volume ~0.8 energetic, ~0.4 calm; captionPop false for calm/formal styles.
+- post: the caption, hashtags and YouTube title the creator will publish with the video, in the script's language, true to the script.
 - Never invent facts the script does not contain.`;
 
 const PLAN_TOOL_NAME = 'submit_edit_plan';
@@ -55,6 +81,8 @@ async function prepareImageForModel(file: string, workDir: string, index: number
     '-y',
     '-v',
     'error',
+    '-protocol_whitelist',
+    'file',
     '-i',
     file,
     '-vf',
@@ -75,6 +103,8 @@ export interface ClaudePlannerOptions {
   client?: Pick<Anthropic, 'messages'>;
 }
 
+type CreateParams = Parameters<Anthropic['messages']['create']>[0];
+
 export class ClaudePlanner implements Planner {
   private client: Pick<Anthropic, 'messages'>;
   private readonly model: string;
@@ -88,17 +118,23 @@ export class ClaudePlanner implements Planner {
       this.client = opts.client;
     } else {
       const apiKey = opts.apiKey ?? process.env.ANTHROPIC_API_KEY;
-      if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set');
-      this.client = new Anthropic({ apiKey });
+      if (!apiKey) throw new PlannerError('ANTHROPIC_API_KEY is not set');
+      // The SDK retries 429 / 5xx / overloaded with backoff.
+      this.client = new Anthropic({ apiKey, maxRetries: 3, timeout: 180_000 });
     }
   }
 
+  get id(): string {
+    return `claude:${this.model}:${PLAN_PROMPT_VERSION}`;
+  }
+
   async plan(req: PlanRequest): Promise<EditPlan> {
+    await fs.mkdir(this.workDir, { recursive: true });
     const content: Anthropic.ContentBlockParam[] = [];
     for (let i = 0; i < req.images.length; i++) {
       const small = await prepareImageForModel(req.images[i], this.workDir, i);
       const data = (await fs.readFile(small)).toString('base64');
-      content.push({ type: 'text', text: `Image ${i} (${path.basename(req.images[i])}):` });
+      content.push({ type: 'text', text: `Image ${i}:` });
       content.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } });
     }
     content.push({
@@ -117,30 +153,63 @@ export class ClaudePlanner implements Planner {
         .join('\n'),
     });
 
-    const response = await this.client.messages.create({
+    const params: CreateParams = {
       model: this.model,
-      max_tokens: 8000,
-      system: SYSTEM_PROMPT,
+      max_tokens: 16_000,
+      // Same prefix (tools + system) on every call: cache it.
+      system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
       tools: [
         {
           name: PLAN_TOOL_NAME,
           description: 'Submit the final edit plan for rendering.',
+          // strict: the tool input is guaranteed to match the schema (constrained decoding).
+          strict: true,
           input_schema: EDIT_PLAN_JSON_SCHEMA as unknown as Anthropic.Tool.InputSchema,
         },
       ],
       tool_choice: { type: 'tool', name: PLAN_TOOL_NAME },
       messages: [{ role: 'user', content }],
-    });
+      stream: false,
+    };
 
+    let response = await this.call(params, req);
+    if (response.stop_reason === 'max_tokens') {
+      // Long scripts with many scenes: one more try with room to finish.
+      response = await this.call({ ...params, max_tokens: 32_000 }, req);
+    }
+    if (response.stop_reason === 'refusal') {
+      throw new PlannerError('The model declined to plan this video. Check the script and images.');
+    }
     const toolUse = response.content.find(
       (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use' && b.name === PLAN_TOOL_NAME,
     );
-    if (!toolUse)
-      throw new Error(`Model did not return an edit plan (stop_reason: ${response.stop_reason})`);
+    if (!toolUse) {
+      throw new PlannerError(
+        `The model returned no edit plan (stop_reason: ${response.stop_reason})`,
+      );
+    }
 
     const plan = parseEditPlan(toolUse.input, req.images.length);
     if (req.voice) plan.voice = req.voice;
     return plan;
+  }
+
+  private async call(params: CreateParams, req: PlanRequest): Promise<Anthropic.Message> {
+    const started = Date.now();
+    const response = (await this.client.messages.create(params, {
+      signal: req.signal,
+    })) as Anthropic.Message;
+    const u = response.usage;
+    await req.onUsage?.({
+      provider: 'anthropic',
+      model: response.model || this.model,
+      inputTokens: u?.input_tokens ?? 0,
+      outputTokens: u?.output_tokens ?? 0,
+      cacheReadTokens: u?.cache_read_input_tokens ?? 0,
+      cacheWriteTokens: u?.cache_creation_input_tokens ?? 0,
+      durationMs: Date.now() - started,
+    });
+    return response;
   }
 }
 
@@ -159,6 +228,8 @@ export function splitSentences(text: string): string[] {
  * groups sentences into scenes of ~maxWords words and spreads them across the images in order.
  */
 export class HeuristicPlanner implements Planner {
+  readonly id = `heuristic:${PLAN_PROMPT_VERSION}`;
+
   async plan(req: PlanRequest): Promise<EditPlan> {
     const maxWords = /tiktok|nhanh|năng động|energetic|fast/i.test(`${req.style} ${req.request}`)
       ? 14
@@ -196,6 +267,7 @@ export class HeuristicPlanner implements Planner {
       },
       sfx: { enabled: true, volume: 0.7, captionPop: true },
       musicVolume: 0.15,
+      post: { caption: '', hashtags: [], youtubeTitle: '' },
       scenes: chunks.map((narration, i) => ({
         emphasis: narration
           .split(/\s+/)

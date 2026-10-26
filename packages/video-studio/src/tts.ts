@@ -1,5 +1,6 @@
 import { existsSync, promises as fs } from 'node:fs';
 import path from 'node:path';
+import { FileCache, hashOf } from './cache';
 import { FFMPEG, probeDuration, run } from './ffmpeg';
 
 export interface TtsWord {
@@ -140,5 +141,44 @@ export class SilentTts implements TtsEngine {
       file,
     ]);
     return { file, duration };
+  }
+}
+
+/**
+ * Caches another engine's output by (engine, text, voice, rate): re-rendering a job,
+ * another aspect ratio or a plan edit that keeps a scene's words costs no new TTS call.
+ */
+export class CachedTts implements TtsEngine {
+  readonly name: string;
+
+  constructor(
+    private readonly inner: TtsEngine,
+    private readonly cache: FileCache,
+  ) {
+    this.name = inner.name;
+  }
+
+  async synthesize(
+    text: string,
+    voice: string,
+    rate: string,
+    outFileNoExt: string,
+  ): Promise<TtsResult> {
+    const key = hashOf('tts-v1', this.inner.name, text, voice, rate);
+    const meta = await this.cache.readText(key, '.json');
+    if (meta) {
+      const m = JSON.parse(meta) as { ext: string; duration: number; words?: TtsWord[] };
+      const file = this.cache.pathFor(key, m.ext);
+      if (existsSync(file)) return { file, duration: m.duration, words: m.words };
+    }
+    const r = await this.inner.synthesize(text, voice, rate, outFileNoExt);
+    const ext = path.extname(r.file) || '.mp3';
+    const file = await this.cache.putFile(key, ext, r.file);
+    await this.cache.writeText(
+      key,
+      '.json',
+      JSON.stringify({ ext, duration: r.duration, words: r.words }),
+    );
+    return { ...r, file };
   }
 }

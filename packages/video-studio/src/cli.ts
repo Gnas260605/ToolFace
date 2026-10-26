@@ -25,6 +25,8 @@ Cách dùng:
       --no-voice           Không lồng tiếng, chỉ phụ đề
       --caption-style <s>  karaoke (chữ sáng theo giọng) | pop (bật từng dòng) | plain
       --no-sfx             Tắt hiệu ứng âm thanh (whoosh, pop...)
+      --preview            Bản xem trước nhanh (nửa độ phân giải, tô vùng bị giao diện app che)
+      --no-cache           Không dùng bộ nhớ đệm (luôn gọi AI, đọc giọng, render lại)
       --sfx-dir <dir>      Dùng âm thanh của bạn: whoosh/pop/tick/hit .wav|.mp3
       --plan <file>        Dùng plan.json có sẵn (bỏ qua bước AI lên kế hoạch)
       --plan-only          Chỉ tạo plan.json để xem/sửa trước khi render
@@ -72,6 +74,8 @@ async function main(): Promise<void> {
       'no-voice': { type: 'boolean', default: false },
       'caption-style': { type: 'string' },
       'no-sfx': { type: 'boolean', default: false },
+      preview: { type: 'boolean', default: false },
+      'no-cache': { type: 'boolean', default: false },
       'sfx-dir': { type: 'string' },
       plan: { type: 'string' },
       'plan-only': { type: 'boolean', default: false },
@@ -128,6 +132,9 @@ async function main(): Promise<void> {
     music: values.music,
     noVoice: values['no-voice'],
     noSfx: values['no-sfx'],
+    quality: values.preview ? 'preview' : 'final',
+    safeZoneGuides: values.preview,
+    cacheDir: values['no-cache'] ? null : undefined,
     sfxDir: values['sfx-dir'],
     captionStyle,
     plan,
